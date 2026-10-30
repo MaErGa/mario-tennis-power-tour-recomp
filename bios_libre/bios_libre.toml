@@ -1,0 +1,396 @@
+# bios_libre.toml — configuración de recompilación de la BIOS libre (Cult-of-GBA/BIOS).
+#
+# Se usa con:  gba_recompile --bios bios_libre/bios_libre.bin \
+#                  --config bios_libre/bios_libre.toml --out generated_bios
+#
+# La BIOS libre es una reimplementación de la BIOS de GBA escrita desde cero en
+# ensamblador ARM (licencia MIT, ver LICENSE-Cult-of-GBA-BIOS.txt). Su fuente está
+# en https://github.com/Cult-of-GBA/BIOS y se compila con arm-none-eabi-as; el
+# bios.bin del repositorio se reproduce byte a byte (SHA-1 abajo).
+#
+# Las direcciones salen de la tabla de símbolos de esa compilación
+# (arm-none-eabi-nm), de la tabla de SWI (swi_table, 0x17C) y de la tabla de
+# rutinas de CpuSet (0x254).
+
+[program]
+name         = "GBA BIOS libre (Cult-of-GBA)"
+id           = "gba_bios_libre"
+load_address = 0x00000000
+size         = 0x00004000  # 16 KB
+entry_pc     = 0x00000000
+static_resume_all = true   # las interrupciones pueden reanudar en cualquier instrucción
+speculative_literal_harvest = false
+
+[identity]
+sha1 = "2e41f9d30ecdf1c4540edf89ac16f49bf327edb7"
+
+[[extra_func]]
+addr = 0x00000000
+mode = "arm"
+name = "bios_reset_vector"
+note = "Vector de reset"
+
+[[extra_func]]
+addr = 0x00000004
+mode = "arm"
+name = "bios_undefined_vector"
+note = "Instrucción indefinida"
+
+[[extra_func]]
+addr = 0x00000008
+mode = "arm"
+name = "bios_swi_vector"
+note = "SWI: el runtime despacha aquí"
+
+[[extra_func]]
+addr = 0x0000000C
+mode = "arm"
+name = "bios_prefetch_vector"
+note = "Prefetch abort (sin uso)"
+
+[[extra_func]]
+addr = 0x00000010
+mode = "arm"
+name = "bios_data_abort_vector"
+note = "Data abort (sin uso)"
+
+[[extra_func]]
+addr = 0x00000014
+mode = "arm"
+name = "bios_reserved_vector"
+note = "Reservado"
+
+[[extra_func]]
+addr = 0x00000018
+mode = "arm"
+name = "bios_irq_vector"
+note = "IRQ: el despacho de interrupciones entra aquí"
+
+[[extra_func]]
+addr = 0x0000001C
+mode = "arm"
+name = "bios_fiq_vector"
+note = "FIQ (sin uso)"
+
+[[extra_func]]
+addr = 0x00000020
+mode = "arm"
+name = "exception_reset"
+
+[[extra_func]]
+addr = 0x000000B8
+mode = "arm"
+name = "swi_SoftReset"
+
+[[extra_func]]
+addr = 0x000000CC
+mode = "arm"
+name = "reset_modes"
+
+[[extra_func]]
+addr = 0x00000110
+mode = "arm"
+name = "exception_irq"
+
+[[extra_func]]
+addr = 0x00000120
+mode = "arm"
+name = "exception_irq_retorno"
+note = "A donde vuelve el manejador de IRQ del juego (lr = pc+0 tras 'add lr, pc, #0'); sin esta entrada cada IRQ pasaba por el intérprete"
+
+[[extra_func]]
+addr = 0x00000128
+mode = "arm"
+name = "exception_swi"
+
+[[extra_func]]
+addr = 0x00000174
+mode = "arm"
+name = "exception_undefined"
+
+[[extra_func]]
+addr = 0x00000178
+mode = "arm"
+name = "exception_unused"
+
+[[extra_func]]
+addr = 0x00002770
+mode = "arm"
+name = "BootScreen"
+
+[[extra_func]]
+addr = 0x000028D0
+mode = "arm"
+name = "BootScreen_draw"
+
+[[extra_func]]
+addr = 0x00002980
+mode = "arm"
+name = "BootScreen_animate"
+
+[[extra_func]]
+addr = 0x000029D0
+mode = "arm"
+name = "draw_GB_letter"
+
+[[extra_func]]
+addr = 0x00000CA0
+mode = "arm"
+name = "swi_RegisterRamReset"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000BFC
+mode = "arm"
+name = "swi_Halt"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000C0C
+mode = "arm"
+name = "swi_Stop"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000C30
+mode = "arm"
+name = "swi_IntrWait"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000C28
+mode = "arm"
+name = "swi_VBlankIntrWait"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000734
+mode = "arm"
+name = "swi_Div"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000728
+mode = "arm"
+name = "swi_DivArm"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000798
+mode = "arm"
+name = "swi_Sqrt"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000840
+mode = "arm"
+name = "swi_ArcTan"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x000007EC
+mode = "arm"
+name = "swi_ArcTan2"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000234
+mode = "arm"
+name = "swi_CpuSet"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x000002C4
+mode = "arm"
+name = "swi_CpuFastSet"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x0000022C
+mode = "arm"
+name = "swi_GetBiosChecksum"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000B58
+mode = "arm"
+name = "swi_BGAffineSet"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000AE0
+mode = "arm"
+name = "swi_ObjAffineSet"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000450
+mode = "arm"
+name = "swi_BitUnpack"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000328
+mode = "arm"
+name = "swi_LZ77UnCompWrite8bit"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x000003AC
+mode = "arm"
+name = "swi_LZ77UnCompWrite16bit"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x0000058C
+mode = "arm"
+name = "swi_HuffUnCompReadNormal"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000624
+mode = "arm"
+name = "swi_RLUnCompReadNormalWrite8bit"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000690
+mode = "arm"
+name = "swi_RLUnCompReadNormalWrite16bit"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x000004D0
+mode = "arm"
+name = "swi_Diff8bitUnfilterWrite8bit"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000508
+mode = "arm"
+name = "swi_Diff8bitUnfilterWrite16bit"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000554
+mode = "arm"
+name = "swi_Diff16bitUnfilter"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000228
+mode = "arm"
+name = "swi_DoNothing"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000FAC
+mode = "arm"
+name = "swi_SoundDriverInit"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00001140
+mode = "arm"
+name = "swi_SoundDriverVSync"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000EA4
+mode = "arm"
+name = "swi_MidiKey2Freq"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000C1C
+mode = "arm"
+name = "swi_CustomHalt"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x000010D4
+mode = "arm"
+name = "swi_SoundDriverVSyncOff"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x000010C0
+mode = "arm"
+name = "swi_SoundDriverVSyncOn"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000F08
+mode = "arm"
+name = "swi_SoundGetJumpList"
+note = "Destino de la tabla de SWI"
+
+[[extra_func]]
+addr = 0x00000264
+mode = "arm"
+name = "cpuset_copy16"
+note = "Destino de la tabla de CpuSet (ldr pc, [..])"
+
+[[extra_func]]
+addr = 0x0000027C
+mode = "arm"
+name = "cpuset_fill16"
+note = "Destino de la tabla de CpuSet (ldr pc, [..])"
+
+[[extra_func]]
+addr = 0x00000294
+mode = "arm"
+name = "cpuset_copy32"
+note = "Destino de la tabla de CpuSet (ldr pc, [..])"
+
+[[extra_func]]
+addr = 0x000002AC
+mode = "arm"
+name = "cpuset_fill32"
+note = "Destino de la tabla de CpuSet (ldr pc, [..])"
+
+[[data_range]]
+start = 0x00000098
+end   = 0x000000B8
+note  = "Valores de E/S del reinicio duro"
+
+[[data_range]]
+start = 0x0000017C
+end   = 0x00000228
+note  = "Tabla de SWI (punteros)"
+
+[[data_range]]
+start = 0x00000254
+end   = 0x00000264
+note  = "Tabla de rutinas de CpuSet (punteros)"
+
+[[data_range]]
+start = 0x000007DC
+end   = 0x000007EC
+note  = "Tabla de octantes (arcotangente)"
+
+[[data_range]]
+start = 0x000008E0
+end   = 0x00000AE0
+note  = "Tabla de senos"
+
+[[data_range]]
+start = 0x00000C78
+end   = 0x00000CA0
+note  = "Tablas de RegisterRamReset"
+
+[[data_range]]
+start = 0x00000DC0
+end   = 0x00000EA4
+note  = "Tablas MIDI (escalas y frecuencias)"
+
+[[data_range]]
+start = 0x00000F20
+end   = 0x00000FAC
+note  = "Tabla de funciones del controlador de sonido"
+
+[[data_range]]
+start = 0x000011A0
+end   = 0x00002770
+note  = "Glifos, paleta y sprites de la pantalla de arranque"
+

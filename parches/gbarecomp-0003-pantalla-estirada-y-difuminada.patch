@@ -1,0 +1,180 @@
+diff --git a/src/runtime/host_window.cpp b/src/runtime/host_window.cpp
+index 712c1bb..b70a8c2 100644
+--- a/src/runtime/host_window.cpp
++++ b/src/runtime/host_window.cpp
+@@ -344,6 +344,12 @@ struct Backend {
+     SDL_Renderer* renderer = nullptr;
+     SDL_Texture*  texture  = nullptr;
+     SDL_Texture*  sharp_texture = nullptr;
++    SDL_Texture*  mtp_relleno = nullptr;   // PARCHE mario-tennis (modo 2)
++    SDL_Texture*  mtp_reducida_a = nullptr;
++    SDL_Texture*  mtp_reducida_b = nullptr;
++    bool          mtp_reducida_fallo = false;
++    int           mtp_relleno_w = 0;
++    int           mtp_relleno_h = 0;
+     int           sharp_texture_w = 0;
+     int           sharp_texture_h = 0;
+     bool          sharp_target_failed = false;
+@@ -1402,6 +1408,59 @@ void render_host_layers(Backend* b) {
+     SDL_SetRenderDrawBlendMode(b->renderer, SDL_BLENDMODE_NONE);
+ }
+ 
++// PARCHE mario-tennis: modo de presentación de la imagen de 240x160, leído una
++// vez de GBARECOMP_STRETCH (el anfitrión del juego la fija según el menú):
++// 0 = barras negras (original), 1 = estirada a la ventana, 2 = barras rellenas.
++static int mtp_modo_ventana() {
++    static const int modo = [] {
++        const char* e = std::getenv("GBARECOMP_STRETCH");
++        if (!e || !e[0] || e[0] == '0') return 0;
++        return e[0] == '2' ? 2 : 1;
++    }();
++    return modo;
++}
++
++// PARCHE mario-tennis: fondo de las barras laterales (modo 2). Reduce la imagen
++// dos veces (÷4 y ÷4) con filtro lineal para obtener un fondo muy suave: así las
++// barras no repiten, como un fantasma, el marcador ni los personajes. Devuelve la
++// textura que hay que estirar a la ventana; si el renderer no admite destinos de
++// dibujo, la propia imagen (menos suave pero igualmente válida).
++static SDL_Texture* mtp_fondo_difuminado(Backend* b) {
++    if (!b->mtp_relleno) return nullptr;
++    if (b->mtp_reducida_fallo) return b->mtp_relleno;
++    if (!b->mtp_reducida_a || !b->mtp_reducida_b) {
++        auto crear = [&](int w, int h) -> SDL_Texture* {
++            SDL_Texture* t = SDL_CreateTexture(
++                b->renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, w, h);
++            if (t) {
++                SDL_SetTextureBlendMode(t, SDL_BLENDMODE_NONE);
++#if SDL_VERSION_ATLEAST(2, 0, 12)
++                SDL_SetTextureScaleMode(t, SDL_ScaleModeLinear);
++#endif
++            }
++            return t;
++        };
++        b->mtp_reducida_a = crear(b->base_w / 4, b->base_h / 4);
++        b->mtp_reducida_b = crear(b->base_w / 16 + 1, b->base_h / 16 + 1);
++        if (!b->mtp_reducida_a || !b->mtp_reducida_b) {
++            if (b->mtp_reducida_a) SDL_DestroyTexture(b->mtp_reducida_a);
++            if (b->mtp_reducida_b) SDL_DestroyTexture(b->mtp_reducida_b);
++            b->mtp_reducida_a = b->mtp_reducida_b = nullptr;
++            b->mtp_reducida_fallo = true;
++            return b->mtp_relleno;
++        }
++    }
++    SDL_Texture* previo = SDL_GetRenderTarget(b->renderer);
++    SDL_SetTextureColorMod(b->mtp_relleno, 255, 255, 255);
++    const bool ok =
++        SDL_SetRenderTarget(b->renderer, b->mtp_reducida_a) == 0 &&
++        SDL_RenderCopy(b->renderer, b->mtp_relleno, nullptr, nullptr) == 0 &&
++        SDL_SetRenderTarget(b->renderer, b->mtp_reducida_b) == 0 &&
++        SDL_RenderCopy(b->renderer, b->mtp_reducida_a, nullptr, nullptr) == 0;
++    SDL_SetRenderTarget(b->renderer, previo);
++    return ok ? b->mtp_reducida_b : b->mtp_relleno;
++}
++
+ // The presentation rectangle every present path uses, so touch mapping and
+ // host chrome follow exactly what was drawn.
+ PresentationLayout current_presentation_layout(Backend* b, int* out_w, int* out_h) {
+@@ -1448,7 +1507,9 @@ PresentationLayout current_presentation_layout(Backend* b, int* out_w, int* out_
+         // Mirror SDL_RenderSetLogicalSize's letterbox so touch maps exactly.
+         if (SDL_GetRendererOutputSize(b->renderer, &drawable_w, &drawable_h) != 0)
+             SDL_GetWindowSize(b->window, &drawable_w, &drawable_h);
+-        if (drawable_w > 0 && drawable_h > 0) {
++        if (drawable_w > 0 && drawable_h > 0 && mtp_modo_ventana() == 1) {
++            layout = {0, 0, drawable_w, drawable_h, 0};   // PARCHE mario-tennis
++        } else if (drawable_w > 0 && drawable_h > 0) {
+             const float want = static_cast<float>(b->base_w) / b->base_h;
+             const float real = static_cast<float>(drawable_w) / drawable_h;
+             if (std::fabs(want - real) < 0.0001f) {
+@@ -1700,11 +1761,16 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
+         b->hotkeys[h] = parse_hotkey(kHotkeyDefaults[h]);
+     // Linear vs nearest scaling is a texture-creation-time hint.
+     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, linear_filter ? "linear" : "nearest");
+-    const int win_w = base_w * scale;
++    // PARCHE mario-tennis: en los modos 16:9 (estirado / barras difuminadas) la
++    // ventana se abre ya en 16:9 y se puede redimensionar; con la proporción
++    // 3:2 de siempre no habría nada que estirar ni que rellenar.
+     const int win_h = base_h * scale;
++    const int win_w = mtp_modo_ventana() != 0
++        ? (win_h * 16 / 9) & ~1
++        : base_w * scale;
+     Uint32 window_flags = SDL_WINDOW_SHOWN |
+         ((b->expanded_view || b->resize_driven_view ||
+-          b->freely_resizable_window)
++          b->freely_resizable_window || mtp_modo_ventana() != 0)
+              ? static_cast<Uint32>(SDL_WINDOW_RESIZABLE) : Uint32{0});
+ #if defined(__ANDROID__)
+     // SDLActivity maps this hint (plus RESIZABLE) onto the Activity's
+@@ -1823,6 +1889,9 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
+         // aspect. Exact multiples retain integer scale; filtering follows the
+         // linear_filter choice set above (historical default: nearest).
+         SDL_SetRenderDrawColor(b->renderer, 0, 0, 0, 255);
++    } else if (mtp_modo_ventana() != 0) {
++        // PARCHE mario-tennis: sin tamaño lógico SDL el destino es la ventana.
++        SDL_SetRenderDrawColor(b->renderer, 0, 0, 0, 255);
+     } else {
+         // Non-opting games retain the historical fixed 240x160 SDL logical
+         // renderer, including its window flags and copy path.
+@@ -2115,6 +2184,10 @@ void HostWindow::close() {
+     runtime_imgui_shutdown(b);
+ #endif
+     destroy_sharp_texture(b);
++    // PARCHE mario-tennis
++    if (b->mtp_relleno) SDL_DestroyTexture(b->mtp_relleno);
++    if (b->mtp_reducida_a) SDL_DestroyTexture(b->mtp_reducida_a);
++    if (b->mtp_reducida_b) SDL_DestroyTexture(b->mtp_reducida_b);
+     if (b->texture)   SDL_DestroyTexture(b->texture);
+     if (b->renderer)  SDL_DestroyRenderer(b->renderer);
+     if (b->window)    SDL_DestroyWindow(b->window);
+@@ -2196,6 +2269,29 @@ void HostWindow::present(const uint8_t* rgb888) {
+         rgb888 = b->graded_fb.data();
+     }
+     SDL_UpdateTexture(b->texture, nullptr, rgb888, b->base_w * 3);
++    // PARCHE mario-tennis (modo 2): la misma imagen en una segunda textura con
++    // filtro lineal y oscurecida; se dibujará estirada detrás, para las barras.
++    if (mtp_modo_ventana() == 2) {
++        if (b->mtp_relleno &&
++            (b->mtp_relleno_w != b->base_w || b->mtp_relleno_h != b->base_h)) {
++            SDL_DestroyTexture(b->mtp_relleno);
++            b->mtp_relleno = nullptr;
++        }
++        if (!b->mtp_relleno) {
++            b->mtp_relleno = SDL_CreateTexture(
++                b->renderer, SDL_PIXELFORMAT_RGB24, SDL_TEXTUREACCESS_STREAMING,
++                b->base_w, b->base_h);
++            if (b->mtp_relleno) {
++#if SDL_VERSION_ATLEAST(2, 0, 12)
++                SDL_SetTextureScaleMode(b->mtp_relleno, SDL_ScaleModeLinear);
++#endif
++                b->mtp_relleno_w = b->base_w;
++                b->mtp_relleno_h = b->base_h;
++            }
++        }
++        if (b->mtp_relleno)
++            SDL_UpdateTexture(b->mtp_relleno, nullptr, rgb888, b->base_w * 3);
++    }
+     SDL_SetRenderDrawColor(b->renderer, 7, 11, 20, 255);
+     SDL_RenderClear(b->renderer);
+ #if defined(__ANDROID__)
+@@ -2267,7 +2363,20 @@ void HostWindow::present(const uint8_t* rgb888) {
+     SDL_RenderCopy(b->renderer, b->texture, nullptr, &destination);
+ #else
+     if (!b->expanded_view && !b->resize_driven_view) {
+-        SDL_RenderCopy(b->renderer, b->texture, nullptr, nullptr);
++        if (mtp_modo_ventana() == 2 && b->mtp_relleno &&
++            layout.width > 0 && layout.height > 0 &&
++            (layout.width < drawable_w || layout.height < drawable_h)) {
++            // PARCHE mario-tennis: fondo = la imagen estirada y difuminada;
++            // encima, la imagen 3:2 sin deformar.
++            SDL_Texture* fondo = mtp_fondo_difuminado(b);
++            SDL_SetTextureColorMod(fondo, 96, 96, 96);
++            SDL_RenderCopy(b->renderer, fondo, nullptr, nullptr);
++            const SDL_Rect destino = {layout.x, layout.y, layout.width,
++                                      layout.height};
++            SDL_RenderCopy(b->renderer, b->texture, nullptr, &destino);
++        } else {
++            SDL_RenderCopy(b->renderer, b->texture, nullptr, nullptr);
++        }
+     } else {
+         if (layout.width > 0 && layout.height > 0) {
+             const SDL_Rect destination = {

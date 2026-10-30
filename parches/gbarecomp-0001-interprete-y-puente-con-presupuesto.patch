@@ -1,0 +1,98 @@
+diff --git a/src/armv4t/runtime_arm.cpp b/src/armv4t/runtime_arm.cpp
+index 847fb23..129fd4b 100644
+--- a/src/armv4t/runtime_arm.cpp
++++ b/src/armv4t/runtime_arm.cpp
+@@ -872,11 +872,23 @@ const DispatchEntry* dispatch_resolve(uint32_t target_pc) {
+     // outer run loop first. Honor the per-PC interpreter predicate at this
+     // central dispatch boundary too, and use the existing whole-subtree bridge
+     // so the generated call/return ABI remains balanced.
+-    if (g_runtime_force_interp_hook &&
+-        g_runtime_force_interp_hook(pc, thumb ? 1 : 0)) {
++    // PARCHE mario-tennis: el gancho puede devolver 2 («desenrollar»): código
++    // de RAM que no vuelve por el camino normal (p. ej. el bucle de una tarea
++    // que cambia de pila). No se puentea: se deja el PC aquí y se vuelve; los
++    // llamantes generados ven R15 distinto de su dirección de retorno, cancelan
++    // sus retornos y desenrollan hasta el bucle principal, que interpreta paso a
++    // paso y despacha en nativo las funciones de ROM que ese código llame. Con 1
++    // se mantiene el puente de subárbol (ahora con presupuesto si está anidado).
++    const int forzar = g_runtime_force_interp_hook
++        ? g_runtime_force_interp_hook(pc, thumb ? 1 : 0) : 0;
++    if (forzar) {
+         if (g_resumable_context)
+             throw std::logic_error("multiplayer requires native dispatch coverage");
+-        runtime_bridge_interpret(pc, thumb, 0u, 0u);
++        if (forzar == 2) {
++            g_cpu.R[15] = pc;
++            return nullptr;
++        }
++        runtime_bridge_interpret_anidado(pc, thumb);
+         return nullptr;
+     }
+     if (pc >= 0x02000000u && pc < 0x04000000u && g_runtime_ram_dispatch_hook &&
+diff --git a/src/armv4t/runtime_arm.h b/src/armv4t/runtime_arm.h
+index 79fd4ca..e253f06 100644
+--- a/src/armv4t/runtime_arm.h
++++ b/src/armv4t/runtime_arm.h
+@@ -262,6 +262,14 @@ int runtime_has_static_entry(uint32_t pc, int thumb);
+ int runtime_bridge_interpret(uint32_t entry_pc, bool entry_thumb,
+                              uint32_t forced_stop_pc, uint64_t max_instrs);
+ 
++// PARCHE mario-tennis: como runtime_bridge_interpret(pc, thumb, 0, 0) pero, si
++// hay un llamante generado esperando, con un presupuesto de instrucciones
++// (GBARECOMP_NESTED_BRIDGE_BUDGET, por defecto 1.000.000). Si se agota, el PC
++// queda donde está y devuelve 0: los llamantes generados ven R15 distinto de su
++// dirección de retorno y desenrollan hasta el bucle principal. Devuelve 1 si el
++// puente terminó con normalidad.
++int runtime_bridge_interpret_anidado(uint32_t entry_pc, bool entry_thumb);
++
+ // Direct generated BL calls use the host C stack for speed and clarity.
+ // Return idioms (`bx lr`, `mov pc, lr`, `pop {..., pc}`) are only C
+ // returns when they match the top direct-call return address; otherwise
+diff --git a/src/runtime/runtime_arm_default_aborts.cpp b/src/runtime/runtime_arm_default_aborts.cpp
+index ff7d8ae..7f8a6a1 100644
+--- a/src/runtime/runtime_arm_default_aborts.cpp
++++ b/src/runtime/runtime_arm_default_aborts.cpp
+@@ -905,6 +905,33 @@ extern "C" void runtime_force_interp_step(void) {
+     }
+ }
+ 
++// PARCHE mario-tennis: puente con presupuesto cuando está anidado.
++//
++// Con la pila de retornos vacía, el puente cura a nativo en cuanto llega a una
++// entrada estática, así que termina siempre. Anidado (hay un llamante generado
++// esperando), el puente solo para al llegar a la dirección de retorno del
++// llamante. Si el código «vuelve» por otro camino (reanudación de una tarea,
++// cambio de pila) esa dirección no llega nunca y el puente acaba interpretando
++// TODO el juego, con las funciones de ROM incluidas, sin presentar fotogramas y
++// hasta abortar a los 200 M de instrucciones.
++//
++// Con presupuesto: si se agota, el PC queda donde está y devuelve 0. Los
++// llamantes generados ven R15 != su dirección de retorno, cancelan sus retornos
++// y desenrollan hasta el bucle principal, que sigue desde ese PC con la pila
++// vacía (el puente ya cura a nativo allí).
++extern "C" int runtime_bridge_interpret_anidado(uint32_t entry_pc,
++                                                bool entry_thumb) {
++    static const std::uint64_t kPresupuesto = [] {
++        const char* e = std::getenv("GBARECOMP_NESTED_BRIDGE_BUDGET");
++        return (e && *e) ? std::strtoull(e, nullptr, 10)
++                         : static_cast<std::uint64_t>(1000000u);
++    }();
++    const bool anidado = runtime_call_stack_depth() != 0u &&
++                         g_irq_nest_depth == 0u && kPresupuesto != 0u;
++    return runtime_bridge_interpret(entry_pc, entry_thumb, /*forced_stop_pc=*/0u,
++                                    /*max_instrs=*/anidado ? kPresupuesto : 0u);
++}
++
+ // runtime_dispatch_miss — Stage-1 self-healing entry: log the miss, enqueue a
+ // Stage-2 heal (so the NEXT hit dispatches native), then bridge through the
+ // interpreter via runtime_bridge_interpret. See that function's note above.
+@@ -960,8 +987,7 @@ extern "C" void runtime_dispatch_miss(uint32_t target_pc) {
+         overlay_try_dispatch(entry_pc, entry_thumb ? 1 : 0)) {
+         return;
+     }
+-    runtime_bridge_interpret(entry_pc, entry_thumb, /*forced_stop_pc=*/0u,
+-                             /*max_instrs=*/0u);
++    runtime_bridge_interpret_anidado(entry_pc, entry_thumb);
+ }
+ 
+ extern "C" void runtime_unimplemented_op(const char* op_name,

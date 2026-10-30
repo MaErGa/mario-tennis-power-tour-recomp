@@ -1,0 +1,48 @@
+diff --git a/src/runtime/launcher_seam.h b/src/runtime/launcher_seam.h
+index f4f9022..eb5831e 100644
+--- a/src/runtime/launcher_seam.h
++++ b/src/runtime/launcher_seam.h
+@@ -75,16 +75,26 @@ inline int verify_retail_gba_bios(const char* path,
+ 
+     gba::GbaBios bios;
+     std::string error;
++    // PARCHE mario-tennis: acepta también la BIOS libre (MIT) de Cult-of-GBA.
++    constexpr const char* kSha1BiosLibre =
++        "2e41f9d30ecdf1c4540edf89ac16f49bf327edb7";
++    bool libre = false;
+     if (!bios.load_from_file(path, gba::GbaBios::kExpectedSha1, &error)) {
+-        std::snprintf(out->detail, sizeof(out->detail), "%s",
+-                      error.empty() ? "Invalid Game Boy Advance BIOS."
+-                                    : error.c_str());
+-        return 1;
++        std::string error_libre;
++        if (bios.load_from_file(path, kSha1BiosLibre, &error_libre)) {
++            libre = true;
++        } else {
++            std::snprintf(out->detail, sizeof(out->detail), "%s",
++                          error.empty() ? "Invalid Game Boy Advance BIOS."
++                                        : error.c_str());
++            return 1;
++        }
+     }
+ 
+     out->ok = 1;
+     std::snprintf(out->detail, sizeof(out->detail),
+-                  "Retail Game Boy Advance BIOS verified (16 KB).");
++                  libre ? "Free replacement BIOS verified (16 KB)."
++                        : "Retail Game Boy Advance BIOS verified (16 KB).");
+     return 1;
+ }
+ 
+@@ -879,7 +889,10 @@ inline int gbarecomp_launcher_preboot(std::vector<std::string>& args,
+         // EXPERIMENTAL (the snesrecomp/psxrecomp widescreen convention).
+         gi.aspect_labels       = opts.launcher_aspect_labels;
+         gi.num_aspect_labels   = opts.launcher_num_aspects;
+-        gi.aspect_experimental = 1;
++        // PARCHE mario-tennis: los modos de pantalla de este juego (3:2, 16:9
++        // estirado y 16:9 con barras difuminadas) son de presentación y están
++        // probados: no llevan la etiqueta EXPERIMENTAL.
++        gi.aspect_experimental = 0;
+         gi.widescreen_supported = 0;   // the cycle supersedes the bool toggle
+     }
+     // Save row: the explicit per-game save path when the game declares one,

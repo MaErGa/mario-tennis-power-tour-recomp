@@ -1,0 +1,14 @@
+# Derivan del juego de Nintendo o se regeneran: no se suben.
+roms/*
+!roms/.gitkeep
+generated/
+generated_bios/
+juego/
+build/
+externo/
+*.gba
+*.sav
+herramientas/
+descargas/
+cache-zig/
+icono*.ico

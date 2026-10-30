@@ -1,0 +1,5805 @@
+# game.toml — Mario Tennis: Power Tour (GBA), versión europea (BTMP, rev. 0)
+#
+# Lo leen DOS programas:
+#   1) gba_recompile (el recompilador): [program], [identity], [[extra_func]],
+#      [[data_range]], [[code_copy]]...   Referencia: gbarecomp/docs/TOML_SCHEMA.md
+#   2) el ejecutable del juego (runtime): [game], [bios], [rom], [save], [video].
+#
+# Las rutas se resuelven respecto a la carpeta donde está ESTE fichero.
+# La ROM es tuya y no se incluye. La BIOS es libre (MIT, Cult-of-GBA).
+
+[game]
+name           = "Mario Tennis: Power Tour (Europa)"
+short_name     = "mario_tennis_pt"
+default_region = "eur"
+
+[bios]
+# BIOS libre incluida (16 KiB, licencia MIT). Se puede cambiar con --bios.
+path = "bios_libre/bios_libre.bin"
+sha1 = "2e41f9d30ecdf1c4540edf89ac16f49bf327edb7"
+# Su pantalla de arranque se queda parada esperando una interrupción: se salta.
+skip_intro = true
+
+[rom]
+path  = "roms/mario_tennis_power_tour_eur.gba"
+sha1  = "d61990974040d405b5bf8436ac8e1e0beb0f7964"
+crc32 = "0xC8DB4F60"
+
+[save]
+# El cartucho usa SRAM (firma "SRAM_V" en 0x00021730). 32 KiB.
+type = "sram"
+size = 32768
+
+[video]
+# Ancho lógico de la imagen. 240 = el de la GBA (relación 3:2).
+view_width = 240
+
+[program]
+name         = "Mario Tennis: Power Tour (EUR)"
+id           = "mtp_eur"
+load_address = 0x08000000
+size         = 0x01000000
+entry_pc     = 0x08000000
+static_resume_all = true
+# Cosecha especulativa desactivada: decodificar datos como código es el error caro.
+# Lo que falte lo avisa el runtime con el PC exacto y se añade con [[extra_func]].
+speculative_literal_harvest = false
+aot_scan_start = 0x08000000
+aot_scan_end   = 0x09000000
+codegen_shards = 64
+
+[identity]
+sha1 = "d61990974040d405b5bf8436ac8e1e0beb0f7964"
+
+# ── Puntos de entrada conocidos ─────────────────────────────────────
+[[extra_func]]
+addr = 0x08000470
+mode = "arm"
+name = "crt0_start"
+note = "Punto de entrada del cartucho (crt0)"
+
+[[extra_func]]
+addr = 0x0800070C
+mode = "arm"
+name = "irq_handler"
+note = "Despachador de IRQ; el crt0 lo instala en 0x03007FFC"
+
+[[extra_func]]
+addr = 0x08013348
+mode = "thumb"
+name = "AgbMain"
+note = "Función principal; la llama el crt0"
+
+# ── Código que el arranque copia de la ROM a IWRAM (DMA3) ───────────
+[[code_copy]]
+runtime_start = 0x03000100
+source_start  = 0x0800070C
+size          = 0xE8
+name          = "iwram_intrmain"
+note          = "IntrMain: despachador de IRQ en IWRAM"
+
+[[code_copy]]
+runtime_start = 0x03000220
+source_start  = 0x0800082C
+size          = 0xFE0
+name          = "iwram_codigo"
+note          = "Rutinas ARM/Thumb del juego copiadas a IWRAM"
+
+[[code_copy]]
+runtime_start = 0x03006000
+source_start  = 0x0825142C
+size          = 0x400
+name          = "iwram_6000"
+note          = "Rutina copiada a 0x03006000"
+
+[[extra_func]]
+addr = 0x03000100
+mode = "arm"
+name = "IntrMain_arm"
+
+[[extra_func]]
+addr = 0x030001C0
+mode = "thumb"
+name = "IntrMain_thumb"
+
+[[extra_func]]
+addr = 0x030001C4
+mode = "arm"
+name = "IntrMain_arm2"
+
+[[extra_func]]
+addr = 0x03006000
+mode = "thumb"
+name = "iwram_6000_thumb"
+
+# El descompresor propio del juego (ROM 0x080129E4 → IWRAM 0x03001400) NO se
+# recompila a propósito: devuelve a una dirección calculada (`sub lr, pc, #284`)
+# tras un `bl`, lo que desborda la pila de retornos del código generado. Se
+# ejecuta con el intérprete (main.cpp: forzar_interprete), que no la usa.
+
+# ── Rutinas reubicadas (se copian a RAM cada vez que se usan) ───────
+[[extra_func]]
+addr = 0x080019C0
+mode = "thumb"
+name = "reub_pila_th"
+
+[[extra_func]]
+addr = 0x080019C4
+mode = "arm"
+name = "reub_pila_arm"
+
+# ── Bloques Thumb «bx pc» + ARM en IWRAM (17) ───────────────────────
+[[extra_func]]
+addr = 0x03000220
+mode = "thumb"
+name = "iwram_stub_th_03000220"
+
+[[extra_func]]
+addr = 0x03000224
+mode = "arm"
+name = "iwram_stub_arm_03000224"
+
+[[extra_func]]
+addr = 0x03000234
+mode = "thumb"
+name = "iwram_stub_th_03000234"
+
+[[extra_func]]
+addr = 0x03000238
+mode = "arm"
+name = "iwram_stub_arm_03000238"
+
+[[extra_func]]
+addr = 0x0300025C
+mode = "thumb"
+name = "iwram_stub_th_0300025C"
+
+[[extra_func]]
+addr = 0x03000260
+mode = "arm"
+name = "iwram_stub_arm_03000260"
+
+[[extra_func]]
+addr = 0x03000264
+mode = "thumb"
+name = "iwram_stub_th_03000264"
+
+[[extra_func]]
+addr = 0x03000268
+mode = "arm"
+name = "iwram_stub_arm_03000268"
+
+[[extra_func]]
+addr = 0x030002D8
+mode = "thumb"
+name = "iwram_stub_th_030002D8"
+
+[[extra_func]]
+addr = 0x030002DC
+mode = "arm"
+name = "iwram_stub_arm_030002DC"
+
+[[extra_func]]
+addr = 0x03000318
+mode = "thumb"
+name = "iwram_stub_th_03000318"
+
+[[extra_func]]
+addr = 0x0300031C
+mode = "arm"
+name = "iwram_stub_arm_0300031C"
+
+[[extra_func]]
+addr = 0x03000358
+mode = "thumb"
+name = "iwram_stub_th_03000358"
+
+[[extra_func]]
+addr = 0x0300035C
+mode = "arm"
+name = "iwram_stub_arm_0300035C"
+
+[[extra_func]]
+addr = 0x030003CC
+mode = "thumb"
+name = "iwram_stub_th_030003CC"
+
+[[extra_func]]
+addr = 0x030003D0
+mode = "arm"
+name = "iwram_stub_arm_030003D0"
+
+[[extra_func]]
+addr = 0x0300050C
+mode = "thumb"
+name = "iwram_stub_th_0300050C"
+
+[[extra_func]]
+addr = 0x03000510
+mode = "arm"
+name = "iwram_stub_arm_03000510"
+
+[[extra_func]]
+addr = 0x03000518
+mode = "thumb"
+name = "iwram_stub_th_03000518"
+
+[[extra_func]]
+addr = 0x0300051C
+mode = "arm"
+name = "iwram_stub_arm_0300051C"
+
+[[extra_func]]
+addr = 0x0300052C
+mode = "thumb"
+name = "iwram_stub_th_0300052C"
+
+[[extra_func]]
+addr = 0x03000530
+mode = "arm"
+name = "iwram_stub_arm_03000530"
+
+[[extra_func]]
+addr = 0x03000538
+mode = "thumb"
+name = "iwram_stub_th_03000538"
+
+[[extra_func]]
+addr = 0x0300053C
+mode = "arm"
+name = "iwram_stub_arm_0300053C"
+
+[[extra_func]]
+addr = 0x03000548
+mode = "thumb"
+name = "iwram_stub_th_03000548"
+
+[[extra_func]]
+addr = 0x0300054C
+mode = "arm"
+name = "iwram_stub_arm_0300054C"
+
+[[extra_func]]
+addr = 0x03000698
+mode = "thumb"
+name = "iwram_stub_th_03000698"
+
+[[extra_func]]
+addr = 0x0300069C
+mode = "arm"
+name = "iwram_stub_arm_0300069C"
+
+[[extra_func]]
+addr = 0x03000734
+mode = "thumb"
+name = "iwram_stub_th_03000734"
+
+[[extra_func]]
+addr = 0x03000738
+mode = "arm"
+name = "iwram_stub_arm_03000738"
+
+[[extra_func]]
+addr = 0x03000DE8
+mode = "thumb"
+name = "iwram_stub_th_03000DE8"
+
+[[extra_func]]
+addr = 0x03000DEC
+mode = "arm"
+name = "iwram_stub_arm_03000DEC"
+
+[[extra_func]]
+addr = 0x03001158
+mode = "thumb"
+name = "iwram_stub_th_03001158"
+
+[[extra_func]]
+addr = 0x0300115C
+mode = "arm"
+name = "iwram_stub_arm_0300115C"
+
+# ── Entradas añadidas automáticamente (tools/fusionar_fallos.py) ─────
+# (se añaden debajo de esta línea)
+
+[[extra_func]]
+addr = 0x03000298
+mode = "arm"
+name = "iwram_rt_03000298"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x030002A8
+mode = "arm"
+name = "iwram_rt_030002A8"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x030002B0
+mode = "arm"
+name = "iwram_rt_030002B0"
+note = "añadida desde el registro de fallos; interpretada x589"
+
+[[extra_func]]
+addr = 0x030002B4
+mode = "arm"
+name = "iwram_rt_030002B4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08000630
+mode = "thumb"
+name = "rom_rt_08000630"
+note = "añadida desde el registro de fallos; interpretada x241"
+
+[[extra_func]]
+addr = 0x08000656
+mode = "thumb"
+name = "rom_rt_08000656"
+note = "añadida desde el registro de fallos; interpretada x34"
+
+[[extra_func]]
+addr = 0x0800065E
+mode = "thumb"
+name = "rom_rt_0800065E"
+note = "añadida desde el registro de fallos; interpretada x25"
+
+[[extra_func]]
+addr = 0x0800066E
+mode = "thumb"
+name = "rom_rt_0800066E"
+note = "añadida desde el registro de fallos; interpretada x154"
+
+[[extra_func]]
+addr = 0x08013EBC
+mode = "thumb"
+name = "rom_rt_08013EBC"
+note = "añadida desde el registro de fallos; interpretada x36"
+
+[[extra_func]]
+addr = 0x08013EDE
+mode = "thumb"
+name = "rom_rt_08013EDE"
+note = "añadida desde el registro de fallos; interpretada x87"
+
+[[extra_func]]
+addr = 0x08014020
+mode = "thumb"
+name = "rom_rt_08014020"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x08014024
+mode = "thumb"
+name = "rom_rt_08014024"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x08014034
+mode = "thumb"
+name = "rom_rt_08014034"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x0801434E
+mode = "thumb"
+name = "rom_rt_0801434E"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08017230
+mode = "thumb"
+name = "rom_rt_08017230"
+note = "añadida desde el registro de fallos; interpretada x293"
+
+[[extra_func]]
+addr = 0x0801723A
+mode = "thumb"
+name = "rom_rt_0801723A"
+note = "añadida desde el registro de fallos; interpretada x185"
+
+[[extra_func]]
+addr = 0x081C2E70
+mode = "thumb"
+name = "rom_rt_081C2E70"
+note = "añadida desde el registro de fallos; interpretada x285"
+
+[[extra_func]]
+addr = 0x081C2E88
+mode = "thumb"
+name = "rom_rt_081C2E88"
+note = "añadida desde el registro de fallos; interpretada x179"
+
+[[extra_func]]
+addr = 0x081C3218
+mode = "thumb"
+name = "rom_rt_081C3218"
+note = "añadida desde el registro de fallos; interpretada x115"
+
+[[extra_func]]
+addr = 0x082509E0
+mode = "thumb"
+name = "rom_rt_082509E0"
+note = "añadida desde el registro de fallos; interpretada x109"
+
+[[extra_func]]
+addr = 0x082509EA
+mode = "thumb"
+name = "rom_rt_082509EA"
+note = "añadida desde el registro de fallos; interpretada x251"
+
+[[extra_func]]
+addr = 0x082509FC
+mode = "thumb"
+name = "rom_rt_082509FC"
+note = "añadida desde el registro de fallos; interpretada x1624"
+
+[[extra_func]]
+addr = 0x08250C0E
+mode = "thumb"
+name = "rom_rt_08250C0E"
+note = "añadida desde el registro de fallos; interpretada x296"
+
+[[extra_func]]
+addr = 0x08252C10
+mode = "thumb"
+name = "rom_rt_08252C10"
+note = "añadida desde el registro de fallos; interpretada x160"
+
+[[extra_func]]
+addr = 0x08252C34
+mode = "thumb"
+name = "rom_rt_08252C34"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x08252C3A
+mode = "thumb"
+name = "rom_rt_08252C3A"
+note = "añadida desde el registro de fallos; interpretada x207"
+
+[[extra_func]]
+addr = 0x08252C40
+mode = "thumb"
+name = "rom_rt_08252C40"
+note = "añadida desde el registro de fallos; interpretada x213"
+
+[[extra_func]]
+addr = 0x08253040
+mode = "thumb"
+name = "rom_rt_08253040"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0300029C
+mode = "arm"
+name = "iwram_rt_0300029C"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x030002A0
+mode = "arm"
+name = "iwram_rt_030002A0"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x030002A4
+mode = "arm"
+name = "iwram_rt_030002A4"
+note = "añadida desde el registro de fallos; interpretada x53"
+
+[[extra_func]]
+addr = 0x030002AC
+mode = "arm"
+name = "iwram_rt_030002AC"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x03000758
+mode = "arm"
+name = "iwram_rt_03000758"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x03000788
+mode = "arm"
+name = "iwram_rt_03000788"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x030009A4
+mode = "arm"
+name = "iwram_rt_030009A4"
+note = "añadida desde el registro de fallos; interpretada x0"
+
+[[extra_func]]
+addr = 0x03000A38
+mode = "arm"
+name = "iwram_rt_03000A38"
+note = "añadida desde el registro de fallos; interpretada x39438"
+
+[[extra_func]]
+addr = 0x03000AD0
+mode = "arm"
+name = "iwram_rt_03000AD0"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x08013F92
+mode = "thumb"
+name = "rom_rt_08013F92"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08014550
+mode = "thumb"
+name = "rom_rt_08014550"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0801460A
+mode = "thumb"
+name = "rom_rt_0801460A"
+note = "añadida desde el registro de fallos; interpretada x342"
+
+[[extra_func]]
+addr = 0x0801462E
+mode = "thumb"
+name = "rom_rt_0801462E"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x08014630
+mode = "thumb"
+name = "rom_rt_08014630"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08014FA0
+mode = "thumb"
+name = "rom_rt_08014FA0"
+note = "añadida desde el registro de fallos; interpretada x9"
+
+[[extra_func]]
+addr = 0x08025AB0
+mode = "thumb"
+name = "rom_rt_08025AB0"
+note = "añadida desde el registro de fallos; interpretada x19"
+
+[[extra_func]]
+addr = 0x08025AC6
+mode = "thumb"
+name = "rom_rt_08025AC6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025ADE
+mode = "thumb"
+name = "rom_rt_08025ADE"
+note = "añadida desde el registro de fallos; interpretada x20"
+
+[[extra_func]]
+addr = 0x08025AE8
+mode = "thumb"
+name = "rom_rt_08025AE8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025AEA
+mode = "thumb"
+name = "rom_rt_08025AEA"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x08025AFC
+mode = "thumb"
+name = "rom_rt_08025AFC"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x08025B04
+mode = "thumb"
+name = "rom_rt_08025B04"
+note = "añadida desde el registro de fallos; interpretada x81"
+
+[[extra_func]]
+addr = 0x08025B22
+mode = "thumb"
+name = "rom_rt_08025B22"
+note = "añadida desde el registro de fallos; interpretada x72"
+
+[[extra_func]]
+addr = 0x08025B4C
+mode = "thumb"
+name = "rom_rt_08025B4C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025B54
+mode = "thumb"
+name = "rom_rt_08025B54"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08025B5C
+mode = "thumb"
+name = "rom_rt_08025B5C"
+note = "añadida desde el registro de fallos; interpretada x84"
+
+[[extra_func]]
+addr = 0x08025B66
+mode = "thumb"
+name = "rom_rt_08025B66"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08025B68
+mode = "thumb"
+name = "rom_rt_08025B68"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08025B7C
+mode = "thumb"
+name = "rom_rt_08025B7C"
+note = "añadida desde el registro de fallos; interpretada x26"
+
+[[extra_func]]
+addr = 0x08025B84
+mode = "thumb"
+name = "rom_rt_08025B84"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025B8E
+mode = "thumb"
+name = "rom_rt_08025B8E"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x08025B9E
+mode = "thumb"
+name = "rom_rt_08025B9E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025BBE
+mode = "thumb"
+name = "rom_rt_08025BBE"
+note = "añadida desde el registro de fallos; interpretada x90"
+
+[[extra_func]]
+addr = 0x08025BC4
+mode = "thumb"
+name = "rom_rt_08025BC4"
+note = "añadida desde el registro de fallos; interpretada x75"
+
+[[extra_func]]
+addr = 0x08025BDC
+mode = "thumb"
+name = "rom_rt_08025BDC"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08025BF4
+mode = "thumb"
+name = "rom_rt_08025BF4"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08025C16
+mode = "thumb"
+name = "rom_rt_08025C16"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025C9C
+mode = "thumb"
+name = "rom_rt_08025C9C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025E90
+mode = "thumb"
+name = "rom_rt_08025E90"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08025EA2
+mode = "thumb"
+name = "rom_rt_08025EA2"
+note = "añadida desde el registro de fallos; interpretada x21"
+
+[[extra_func]]
+addr = 0x08025EE2
+mode = "thumb"
+name = "rom_rt_08025EE2"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x08025EF6
+mode = "thumb"
+name = "rom_rt_08025EF6"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08025EFC
+mode = "thumb"
+name = "rom_rt_08025EFC"
+note = "añadida desde el registro de fallos; interpretada x19"
+
+[[extra_func]]
+addr = 0x08025F0C
+mode = "thumb"
+name = "rom_rt_08025F0C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025F16
+mode = "thumb"
+name = "rom_rt_08025F16"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08025F26
+mode = "thumb"
+name = "rom_rt_08025F26"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025F32
+mode = "thumb"
+name = "rom_rt_08025F32"
+note = "añadida desde el registro de fallos; interpretada x19"
+
+[[extra_func]]
+addr = 0x08026088
+mode = "thumb"
+name = "rom_rt_08026088"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0802608C
+mode = "thumb"
+name = "rom_rt_0802608C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080260C2
+mode = "thumb"
+name = "rom_rt_080260C2"
+note = "añadida desde el registro de fallos; interpretada x20"
+
+[[extra_func]]
+addr = 0x080260D2
+mode = "thumb"
+name = "rom_rt_080260D2"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080260EC
+mode = "thumb"
+name = "rom_rt_080260EC"
+note = "añadida desde el registro de fallos; interpretada x21"
+
+[[extra_func]]
+addr = 0x080260F2
+mode = "thumb"
+name = "rom_rt_080260F2"
+note = "añadida desde el registro de fallos; interpretada x35"
+
+[[extra_func]]
+addr = 0x0802610E
+mode = "thumb"
+name = "rom_rt_0802610E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08026152
+mode = "thumb"
+name = "rom_rt_08026152"
+note = "añadida desde el registro de fallos; interpretada x23"
+
+[[extra_func]]
+addr = 0x0802615C
+mode = "thumb"
+name = "rom_rt_0802615C"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x08026168
+mode = "thumb"
+name = "rom_rt_08026168"
+note = "añadida desde el registro de fallos; interpretada x72"
+
+[[extra_func]]
+addr = 0x0802616C
+mode = "thumb"
+name = "rom_rt_0802616C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802618E
+mode = "thumb"
+name = "rom_rt_0802618E"
+note = "añadida desde el registro de fallos; interpretada x64"
+
+[[extra_func]]
+addr = 0x080261A6
+mode = "thumb"
+name = "rom_rt_080261A6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08026200
+mode = "thumb"
+name = "rom_rt_08026200"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x0802620E
+mode = "thumb"
+name = "rom_rt_0802620E"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x0802627A
+mode = "thumb"
+name = "rom_rt_0802627A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08026280
+mode = "thumb"
+name = "rom_rt_08026280"
+note = "añadida desde el registro de fallos; interpretada x23"
+
+[[extra_func]]
+addr = 0x0802628A
+mode = "thumb"
+name = "rom_rt_0802628A"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x080277D0
+mode = "thumb"
+name = "rom_rt_080277D0"
+note = "añadida desde el registro de fallos; interpretada x165"
+
+[[extra_func]]
+addr = 0x080277DA
+mode = "thumb"
+name = "rom_rt_080277DA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080277FC
+mode = "thumb"
+name = "rom_rt_080277FC"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x0802780E
+mode = "thumb"
+name = "rom_rt_0802780E"
+note = "añadida desde el registro de fallos; interpretada x24"
+
+[[extra_func]]
+addr = 0x08027818
+mode = "thumb"
+name = "rom_rt_08027818"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802781A
+mode = "thumb"
+name = "rom_rt_0802781A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802781E
+mode = "thumb"
+name = "rom_rt_0802781E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08027826
+mode = "thumb"
+name = "rom_rt_08027826"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08027834
+mode = "thumb"
+name = "rom_rt_08027834"
+note = "añadida desde el registro de fallos; interpretada x36"
+
+[[extra_func]]
+addr = 0x0802784C
+mode = "thumb"
+name = "rom_rt_0802784C"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x0802786C
+mode = "thumb"
+name = "rom_rt_0802786C"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0802787C
+mode = "thumb"
+name = "rom_rt_0802787C"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08027884
+mode = "thumb"
+name = "rom_rt_08027884"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x0802788C
+mode = "thumb"
+name = "rom_rt_0802788C"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x0802789E
+mode = "thumb"
+name = "rom_rt_0802789E"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x080278CC
+mode = "thumb"
+name = "rom_rt_080278CC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802798A
+mode = "thumb"
+name = "rom_rt_0802798A"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080279C2
+mode = "thumb"
+name = "rom_rt_080279C2"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x080279D0
+mode = "thumb"
+name = "rom_rt_080279D0"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x080279D4
+mode = "thumb"
+name = "rom_rt_080279D4"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x080279F0
+mode = "thumb"
+name = "rom_rt_080279F0"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x08027A44
+mode = "thumb"
+name = "rom_rt_08027A44"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08027A66
+mode = "thumb"
+name = "rom_rt_08027A66"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08027A80
+mode = "thumb"
+name = "rom_rt_08027A80"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08027A8A
+mode = "thumb"
+name = "rom_rt_08027A8A"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x08027B64
+mode = "thumb"
+name = "rom_rt_08027B64"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x08027B6E
+mode = "thumb"
+name = "rom_rt_08027B6E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08027B7A
+mode = "thumb"
+name = "rom_rt_08027B7A"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x08027B88
+mode = "thumb"
+name = "rom_rt_08027B88"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08027B8A
+mode = "thumb"
+name = "rom_rt_08027B8A"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x08027B90
+mode = "thumb"
+name = "rom_rt_08027B90"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08027BA6
+mode = "thumb"
+name = "rom_rt_08027BA6"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x08027BBC
+mode = "thumb"
+name = "rom_rt_08027BBC"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08027BF8
+mode = "thumb"
+name = "rom_rt_08027BF8"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08027C0E
+mode = "thumb"
+name = "rom_rt_08027C0E"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x08027C1A
+mode = "thumb"
+name = "rom_rt_08027C1A"
+note = "añadida desde el registro de fallos; interpretada x22"
+
+[[extra_func]]
+addr = 0x08027C20
+mode = "thumb"
+name = "rom_rt_08027C20"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x08027C44
+mode = "thumb"
+name = "rom_rt_08027C44"
+note = "añadida desde el registro de fallos; interpretada x23"
+
+[[extra_func]]
+addr = 0x08027C4A
+mode = "thumb"
+name = "rom_rt_08027C4A"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08027C58
+mode = "thumb"
+name = "rom_rt_08027C58"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08027C64
+mode = "thumb"
+name = "rom_rt_08027C64"
+note = "añadida desde el registro de fallos; interpretada x21"
+
+[[extra_func]]
+addr = 0x08027C6E
+mode = "thumb"
+name = "rom_rt_08027C6E"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08027C74
+mode = "thumb"
+name = "rom_rt_08027C74"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08028078
+mode = "thumb"
+name = "rom_rt_08028078"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028082
+mode = "thumb"
+name = "rom_rt_08028082"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028088
+mode = "thumb"
+name = "rom_rt_08028088"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028092
+mode = "thumb"
+name = "rom_rt_08028092"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080280B2
+mode = "thumb"
+name = "rom_rt_080280B2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080282C0
+mode = "thumb"
+name = "rom_rt_080282C0"
+note = "añadida desde el registro de fallos; interpretada x164"
+
+[[extra_func]]
+addr = 0x080282D4
+mode = "thumb"
+name = "rom_rt_080282D4"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x080282D6
+mode = "thumb"
+name = "rom_rt_080282D6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080282DC
+mode = "thumb"
+name = "rom_rt_080282DC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080282E0
+mode = "thumb"
+name = "rom_rt_080282E0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080282E2
+mode = "thumb"
+name = "rom_rt_080282E2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080282E4
+mode = "thumb"
+name = "rom_rt_080282E4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080282F0
+mode = "thumb"
+name = "rom_rt_080282F0"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x080282FE
+mode = "thumb"
+name = "rom_rt_080282FE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802830C
+mode = "thumb"
+name = "rom_rt_0802830C"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08028322
+mode = "thumb"
+name = "rom_rt_08028322"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802835A
+mode = "thumb"
+name = "rom_rt_0802835A"
+note = "añadida desde el registro de fallos; interpretada x9"
+
+[[extra_func]]
+addr = 0x0802836A
+mode = "thumb"
+name = "rom_rt_0802836A"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x0802836E
+mode = "thumb"
+name = "rom_rt_0802836E"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x0802838C
+mode = "thumb"
+name = "rom_rt_0802838C"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x080283F4
+mode = "thumb"
+name = "rom_rt_080283F4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802840E
+mode = "thumb"
+name = "rom_rt_0802840E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802841C
+mode = "thumb"
+name = "rom_rt_0802841C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028430
+mode = "thumb"
+name = "rom_rt_08028430"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028432
+mode = "thumb"
+name = "rom_rt_08028432"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08028434
+mode = "thumb"
+name = "rom_rt_08028434"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028436
+mode = "thumb"
+name = "rom_rt_08028436"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x0802846E
+mode = "thumb"
+name = "rom_rt_0802846E"
+note = "añadida desde el registro de fallos; interpretada x9"
+
+[[extra_func]]
+addr = 0x0802848A
+mode = "thumb"
+name = "rom_rt_0802848A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802848C
+mode = "thumb"
+name = "rom_rt_0802848C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028494
+mode = "thumb"
+name = "rom_rt_08028494"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x080285F8
+mode = "thumb"
+name = "rom_rt_080285F8"
+note = "añadida desde el registro de fallos; interpretada x25"
+
+[[extra_func]]
+addr = 0x08028630
+mode = "thumb"
+name = "rom_rt_08028630"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08028664
+mode = "thumb"
+name = "rom_rt_08028664"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0802869A
+mode = "thumb"
+name = "rom_rt_0802869A"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x080286A0
+mode = "thumb"
+name = "rom_rt_080286A0"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080286AC
+mode = "thumb"
+name = "rom_rt_080286AC"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x080286B6
+mode = "thumb"
+name = "rom_rt_080286B6"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x080286C6
+mode = "thumb"
+name = "rom_rt_080286C6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080286F4
+mode = "thumb"
+name = "rom_rt_080286F4"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x08028788
+mode = "thumb"
+name = "rom_rt_08028788"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08028790
+mode = "thumb"
+name = "rom_rt_08028790"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080287A8
+mode = "thumb"
+name = "rom_rt_080287A8"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x080287B0
+mode = "thumb"
+name = "rom_rt_080287B0"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x080287BE
+mode = "thumb"
+name = "rom_rt_080287BE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080287DC
+mode = "thumb"
+name = "rom_rt_080287DC"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x080287E0
+mode = "thumb"
+name = "rom_rt_080287E0"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x080287FE
+mode = "thumb"
+name = "rom_rt_080287FE"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x08028812
+mode = "thumb"
+name = "rom_rt_08028812"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08028908
+mode = "thumb"
+name = "rom_rt_08028908"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x08028912
+mode = "thumb"
+name = "rom_rt_08028912"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080289C2
+mode = "thumb"
+name = "rom_rt_080289C2"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x080289C6
+mode = "thumb"
+name = "rom_rt_080289C6"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x080289F4
+mode = "thumb"
+name = "rom_rt_080289F4"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080289F6
+mode = "thumb"
+name = "rom_rt_080289F6"
+note = "añadida desde el registro de fallos; interpretada x24"
+
+[[extra_func]]
+addr = 0x08028A00
+mode = "thumb"
+name = "rom_rt_08028A00"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08028A0A
+mode = "thumb"
+name = "rom_rt_08028A0A"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08028A16
+mode = "thumb"
+name = "rom_rt_08028A16"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028A30
+mode = "thumb"
+name = "rom_rt_08028A30"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028A48
+mode = "thumb"
+name = "rom_rt_08028A48"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028A4C
+mode = "thumb"
+name = "rom_rt_08028A4C"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x08028A60
+mode = "thumb"
+name = "rom_rt_08028A60"
+note = "añadida desde el registro de fallos; interpretada x34"
+
+[[extra_func]]
+addr = 0x08028A74
+mode = "thumb"
+name = "rom_rt_08028A74"
+note = "añadida desde el registro de fallos; interpretada x23"
+
+[[extra_func]]
+addr = 0x08028A7C
+mode = "thumb"
+name = "rom_rt_08028A7C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028A7E
+mode = "thumb"
+name = "rom_rt_08028A7E"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x08028AD8
+mode = "thumb"
+name = "rom_rt_08028AD8"
+note = "añadida desde el registro de fallos; interpretada x164"
+
+[[extra_func]]
+addr = 0x08028ADE
+mode = "thumb"
+name = "rom_rt_08028ADE"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x08028CEC
+mode = "thumb"
+name = "rom_rt_08028CEC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028D0C
+mode = "thumb"
+name = "rom_rt_08028D0C"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x08028D38
+mode = "thumb"
+name = "rom_rt_08028D38"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028D3E
+mode = "thumb"
+name = "rom_rt_08028D3E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028D48
+mode = "thumb"
+name = "rom_rt_08028D48"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028D62
+mode = "thumb"
+name = "rom_rt_08028D62"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028D64
+mode = "thumb"
+name = "rom_rt_08028D64"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028D72
+mode = "thumb"
+name = "rom_rt_08028D72"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08028E78
+mode = "thumb"
+name = "rom_rt_08028E78"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x0802A8F8
+mode = "thumb"
+name = "rom_rt_0802A8F8"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0802DBA6
+mode = "thumb"
+name = "rom_rt_0802DBA6"
+note = "añadida desde el registro de fallos; interpretada x165"
+
+[[extra_func]]
+addr = 0x0802F970
+mode = "thumb"
+name = "rom_rt_0802F970"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802F9BA
+mode = "thumb"
+name = "rom_rt_0802F9BA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802FA74
+mode = "thumb"
+name = "rom_rt_0802FA74"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08034180
+mode = "thumb"
+name = "rom_rt_08034180"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x080341D0
+mode = "thumb"
+name = "rom_rt_080341D0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08034890
+mode = "arm"
+name = "rom_rt_08034890"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08034898
+mode = "arm"
+name = "rom_rt_08034898"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080348A8
+mode = "arm"
+name = "rom_rt_080348A8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080348B0
+mode = "arm"
+name = "rom_rt_080348B0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080348B4
+mode = "arm"
+name = "rom_rt_080348B4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08034908
+mode = "arm"
+name = "rom_rt_08034908"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08034958
+mode = "arm"
+name = "rom_rt_08034958"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08034964
+mode = "arm"
+name = "rom_rt_08034964"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08034968
+mode = "arm"
+name = "rom_rt_08034968"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08034A08
+mode = "arm"
+name = "rom_rt_08034A08"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08034A30
+mode = "arm"
+name = "rom_rt_08034A30"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080353DC
+mode = "thumb"
+name = "rom_rt_080353DC"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08035B8A
+mode = "thumb"
+name = "rom_rt_08035B8A"
+note = "añadida desde el registro de fallos; interpretada x85"
+
+[[extra_func]]
+addr = 0x08035B9E
+mode = "thumb"
+name = "rom_rt_08035B9E"
+note = "añadida desde el registro de fallos; interpretada x88"
+
+[[extra_func]]
+addr = 0x08035BA8
+mode = "thumb"
+name = "rom_rt_08035BA8"
+note = "añadida desde el registro de fallos; interpretada x66"
+
+[[extra_func]]
+addr = 0x08035BB6
+mode = "thumb"
+name = "rom_rt_08035BB6"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x08035BBC
+mode = "thumb"
+name = "rom_rt_08035BBC"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x08035BD4
+mode = "thumb"
+name = "rom_rt_08035BD4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035BE2
+mode = "thumb"
+name = "rom_rt_08035BE2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035BEC
+mode = "thumb"
+name = "rom_rt_08035BEC"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x08035C38
+mode = "thumb"
+name = "rom_rt_08035C38"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035C40
+mode = "thumb"
+name = "rom_rt_08035C40"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035C54
+mode = "thumb"
+name = "rom_rt_08035C54"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035C74
+mode = "thumb"
+name = "rom_rt_08035C74"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035C7E
+mode = "thumb"
+name = "rom_rt_08035C7E"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x08035C84
+mode = "thumb"
+name = "rom_rt_08035C84"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08035C94
+mode = "thumb"
+name = "rom_rt_08035C94"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x08035C9A
+mode = "thumb"
+name = "rom_rt_08035C9A"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08035CA6
+mode = "thumb"
+name = "rom_rt_08035CA6"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x08035CBA
+mode = "thumb"
+name = "rom_rt_08035CBA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035DC6
+mode = "thumb"
+name = "rom_rt_08035DC6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035E28
+mode = "thumb"
+name = "rom_rt_08035E28"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x08035E96
+mode = "thumb"
+name = "rom_rt_08035E96"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035EE8
+mode = "thumb"
+name = "rom_rt_08035EE8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035EF6
+mode = "thumb"
+name = "rom_rt_08035EF6"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x08036140
+mode = "thumb"
+name = "rom_rt_08036140"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803615E
+mode = "thumb"
+name = "rom_rt_0803615E"
+note = "añadida desde el registro de fallos; interpretada x27"
+
+[[extra_func]]
+addr = 0x08036164
+mode = "thumb"
+name = "rom_rt_08036164"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x0803616A
+mode = "thumb"
+name = "rom_rt_0803616A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803628C
+mode = "thumb"
+name = "rom_rt_0803628C"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x080362EC
+mode = "thumb"
+name = "rom_rt_080362EC"
+note = "añadida desde el registro de fallos; interpretada x54"
+
+[[extra_func]]
+addr = 0x080362FC
+mode = "thumb"
+name = "rom_rt_080362FC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08036302
+mode = "thumb"
+name = "rom_rt_08036302"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08036304
+mode = "thumb"
+name = "rom_rt_08036304"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0803630C
+mode = "thumb"
+name = "rom_rt_0803630C"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x08036314
+mode = "thumb"
+name = "rom_rt_08036314"
+note = "añadida desde el registro de fallos; interpretada x84"
+
+[[extra_func]]
+addr = 0x08036338
+mode = "thumb"
+name = "rom_rt_08036338"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x08036340
+mode = "thumb"
+name = "rom_rt_08036340"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0803634E
+mode = "thumb"
+name = "rom_rt_0803634E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08036362
+mode = "thumb"
+name = "rom_rt_08036362"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08036390
+mode = "thumb"
+name = "rom_rt_08036390"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08036428
+mode = "thumb"
+name = "rom_rt_08036428"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x0803643A
+mode = "thumb"
+name = "rom_rt_0803643A"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x08036C16
+mode = "thumb"
+name = "rom_rt_08036C16"
+note = "añadida desde el registro de fallos; interpretada x87"
+
+[[extra_func]]
+addr = 0x08037020
+mode = "thumb"
+name = "rom_rt_08037020"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080374A0
+mode = "thumb"
+name = "rom_rt_080374A0"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080374E2
+mode = "thumb"
+name = "rom_rt_080374E2"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x080376B6
+mode = "thumb"
+name = "rom_rt_080376B6"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080376F2
+mode = "thumb"
+name = "rom_rt_080376F2"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08038000
+mode = "thumb"
+name = "rom_rt_08038000"
+note = "añadida desde el registro de fallos; interpretada x86"
+
+[[extra_func]]
+addr = 0x08038030
+mode = "thumb"
+name = "rom_rt_08038030"
+note = "añadida desde el registro de fallos; interpretada x153"
+
+[[extra_func]]
+addr = 0x08038034
+mode = "thumb"
+name = "rom_rt_08038034"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08038036
+mode = "thumb"
+name = "rom_rt_08038036"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803803C
+mode = "thumb"
+name = "rom_rt_0803803C"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x0803804A
+mode = "thumb"
+name = "rom_rt_0803804A"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803804C
+mode = "thumb"
+name = "rom_rt_0803804C"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x0803805C
+mode = "thumb"
+name = "rom_rt_0803805C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803811E
+mode = "thumb"
+name = "rom_rt_0803811E"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08038132
+mode = "thumb"
+name = "rom_rt_08038132"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08038146
+mode = "thumb"
+name = "rom_rt_08038146"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x0803814A
+mode = "thumb"
+name = "rom_rt_0803814A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08038474
+mode = "thumb"
+name = "rom_rt_08038474"
+note = "añadida desde el registro de fallos; interpretada x31"
+
+[[extra_func]]
+addr = 0x08038480
+mode = "thumb"
+name = "rom_rt_08038480"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x0803875C
+mode = "thumb"
+name = "rom_rt_0803875C"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08038776
+mode = "thumb"
+name = "rom_rt_08038776"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08038782
+mode = "thumb"
+name = "rom_rt_08038782"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803878C
+mode = "thumb"
+name = "rom_rt_0803878C"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x080387B8
+mode = "thumb"
+name = "rom_rt_080387B8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803C80C
+mode = "thumb"
+name = "rom_rt_0803C80C"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0803C84E
+mode = "thumb"
+name = "rom_rt_0803C84E"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0803C98C
+mode = "thumb"
+name = "rom_rt_0803C98C"
+note = "añadida desde el registro de fallos; interpretada x34"
+
+[[extra_func]]
+addr = 0x0803C9A8
+mode = "thumb"
+name = "rom_rt_0803C9A8"
+note = "añadida desde el registro de fallos; interpretada x23"
+
+[[extra_func]]
+addr = 0x0803C9CC
+mode = "thumb"
+name = "rom_rt_0803C9CC"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x0803C9D2
+mode = "thumb"
+name = "rom_rt_0803C9D2"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x0803D0E0
+mode = "thumb"
+name = "rom_rt_0803D0E0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803D48C
+mode = "thumb"
+name = "rom_rt_0803D48C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803D52A
+mode = "thumb"
+name = "rom_rt_0803D52A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158050
+mode = "thumb"
+name = "rom_rt_08158050"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x081580F8
+mode = "thumb"
+name = "rom_rt_081580F8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158150
+mode = "thumb"
+name = "rom_rt_08158150"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08158338
+mode = "thumb"
+name = "rom_rt_08158338"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815D690
+mode = "thumb"
+name = "rom_rt_0815D690"
+note = "añadida desde el registro de fallos; interpretada x935"
+
+[[extra_func]]
+addr = 0x0815D6DE
+mode = "thumb"
+name = "rom_rt_0815D6DE"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0815D784
+mode = "thumb"
+name = "rom_rt_0815D784"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0815D7A6
+mode = "thumb"
+name = "rom_rt_0815D7A6"
+note = "añadida desde el registro de fallos; interpretada x136"
+
+[[extra_func]]
+addr = 0x0815D7C4
+mode = "thumb"
+name = "rom_rt_0815D7C4"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x0815D842
+mode = "thumb"
+name = "rom_rt_0815D842"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0815DE5A
+mode = "thumb"
+name = "rom_rt_0815DE5A"
+note = "añadida desde el registro de fallos; interpretada x33"
+
+[[extra_func]]
+addr = 0x0815DE78
+mode = "thumb"
+name = "rom_rt_0815DE78"
+note = "añadida desde el registro de fallos; interpretada x23"
+
+[[extra_func]]
+addr = 0x0815DE84
+mode = "thumb"
+name = "rom_rt_0815DE84"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x0815DE94
+mode = "thumb"
+name = "rom_rt_0815DE94"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0815DEC6
+mode = "thumb"
+name = "rom_rt_0815DEC6"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0815DECE
+mode = "thumb"
+name = "rom_rt_0815DECE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815DED0
+mode = "thumb"
+name = "rom_rt_0815DED0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815DED8
+mode = "thumb"
+name = "rom_rt_0815DED8"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x0815DEDC
+mode = "thumb"
+name = "rom_rt_0815DEDC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815DEF4
+mode = "thumb"
+name = "rom_rt_0815DEF4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815DEF6
+mode = "thumb"
+name = "rom_rt_0815DEF6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815DEF8
+mode = "thumb"
+name = "rom_rt_0815DEF8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815DEFE
+mode = "thumb"
+name = "rom_rt_0815DEFE"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x0815DF00
+mode = "thumb"
+name = "rom_rt_0815DF00"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815DF04
+mode = "thumb"
+name = "rom_rt_0815DF04"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0815DF12
+mode = "thumb"
+name = "rom_rt_0815DF12"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815DF1C
+mode = "thumb"
+name = "rom_rt_0815DF1C"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0815DF1E
+mode = "thumb"
+name = "rom_rt_0815DF1E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081602EC
+mode = "thumb"
+name = "rom_rt_081602EC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160738
+mode = "thumb"
+name = "rom_rt_08160738"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160896
+mode = "thumb"
+name = "rom_rt_08160896"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160944
+mode = "thumb"
+name = "rom_rt_08160944"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160AC0
+mode = "thumb"
+name = "rom_rt_08160AC0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160ADC
+mode = "thumb"
+name = "rom_rt_08160ADC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160B6A
+mode = "thumb"
+name = "rom_rt_08160B6A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161010
+mode = "thumb"
+name = "rom_rt_08161010"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161038
+mode = "thumb"
+name = "rom_rt_08161038"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161044
+mode = "thumb"
+name = "rom_rt_08161044"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081610DE
+mode = "thumb"
+name = "rom_rt_081610DE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161E8C
+mode = "thumb"
+name = "rom_rt_08161E8C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161FE4
+mode = "thumb"
+name = "rom_rt_08161FE4"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08162004
+mode = "thumb"
+name = "rom_rt_08162004"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816200C
+mode = "thumb"
+name = "rom_rt_0816200C"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x0816202C
+mode = "thumb"
+name = "rom_rt_0816202C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081681B6
+mode = "thumb"
+name = "rom_rt_081681B6"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x081682EC
+mode = "thumb"
+name = "rom_rt_081682EC"
+note = "añadida desde el registro de fallos; interpretada x63"
+
+[[extra_func]]
+addr = 0x081694E8
+mode = "thumb"
+name = "rom_rt_081694E8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08169526
+mode = "thumb"
+name = "rom_rt_08169526"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816988A
+mode = "thumb"
+name = "rom_rt_0816988A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816988E
+mode = "thumb"
+name = "rom_rt_0816988E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08169A14
+mode = "thumb"
+name = "rom_rt_08169A14"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0816A1CA
+mode = "thumb"
+name = "rom_rt_0816A1CA"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x0816A1FA
+mode = "thumb"
+name = "rom_rt_0816A1FA"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x0816A296
+mode = "thumb"
+name = "rom_rt_0816A296"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816A2D2
+mode = "thumb"
+name = "rom_rt_0816A2D2"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x0816A394
+mode = "thumb"
+name = "rom_rt_0816A394"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816A3F8
+mode = "thumb"
+name = "rom_rt_0816A3F8"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0816A9AA
+mode = "thumb"
+name = "rom_rt_0816A9AA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816A9B2
+mode = "thumb"
+name = "rom_rt_0816A9B2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AA4A
+mode = "thumb"
+name = "rom_rt_0816AA4A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AA5E
+mode = "thumb"
+name = "rom_rt_0816AA5E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AA6A
+mode = "thumb"
+name = "rom_rt_0816AA6A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AA90
+mode = "thumb"
+name = "rom_rt_0816AA90"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AAE8
+mode = "thumb"
+name = "rom_rt_0816AAE8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AB70
+mode = "thumb"
+name = "rom_rt_0816AB70"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AB78
+mode = "thumb"
+name = "rom_rt_0816AB78"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AB9A
+mode = "thumb"
+name = "rom_rt_0816AB9A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816ABDE
+mode = "thumb"
+name = "rom_rt_0816ABDE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AC26
+mode = "thumb"
+name = "rom_rt_0816AC26"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AC2C
+mode = "thumb"
+name = "rom_rt_0816AC2C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816AD6E
+mode = "thumb"
+name = "rom_rt_0816AD6E"
+note = "añadida desde el registro de fallos; interpretada x43"
+
+[[extra_func]]
+addr = 0x0816AD8E
+mode = "thumb"
+name = "rom_rt_0816AD8E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816ADA6
+mode = "thumb"
+name = "rom_rt_0816ADA6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816ADEC
+mode = "thumb"
+name = "rom_rt_0816ADEC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816ADFC
+mode = "thumb"
+name = "rom_rt_0816ADFC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816B05E
+mode = "thumb"
+name = "rom_rt_0816B05E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816B080
+mode = "thumb"
+name = "rom_rt_0816B080"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816B08A
+mode = "thumb"
+name = "rom_rt_0816B08A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816B0A0
+mode = "thumb"
+name = "rom_rt_0816B0A0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816B0DC
+mode = "thumb"
+name = "rom_rt_0816B0DC"
+note = "añadida desde el registro de fallos; interpretada x9"
+
+[[extra_func]]
+addr = 0x0816B124
+mode = "thumb"
+name = "rom_rt_0816B124"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816B13E
+mode = "thumb"
+name = "rom_rt_0816B13E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816B1AA
+mode = "thumb"
+name = "rom_rt_0816B1AA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816B1FA
+mode = "thumb"
+name = "rom_rt_0816B1FA"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08176574
+mode = "thumb"
+name = "rom_rt_08176574"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0817657A
+mode = "thumb"
+name = "rom_rt_0817657A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081765EC
+mode = "thumb"
+name = "rom_rt_081765EC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0817662A
+mode = "thumb"
+name = "rom_rt_0817662A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176658
+mode = "thumb"
+name = "rom_rt_08176658"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08176680
+mode = "thumb"
+name = "rom_rt_08176680"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081766D2
+mode = "thumb"
+name = "rom_rt_081766D2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081766F6
+mode = "thumb"
+name = "rom_rt_081766F6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081766FC
+mode = "thumb"
+name = "rom_rt_081766FC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0817671C
+mode = "thumb"
+name = "rom_rt_0817671C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176722
+mode = "thumb"
+name = "rom_rt_08176722"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176E9A
+mode = "thumb"
+name = "rom_rt_08176E9A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176EBC
+mode = "thumb"
+name = "rom_rt_08176EBC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176EC2
+mode = "thumb"
+name = "rom_rt_08176EC2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176EE2
+mode = "thumb"
+name = "rom_rt_08176EE2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176EEC
+mode = "thumb"
+name = "rom_rt_08176EEC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176F36
+mode = "thumb"
+name = "rom_rt_08176F36"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176F64
+mode = "thumb"
+name = "rom_rt_08176F64"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176FDE
+mode = "thumb"
+name = "rom_rt_08176FDE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08176FE6
+mode = "thumb"
+name = "rom_rt_08176FE6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081770BC
+mode = "thumb"
+name = "rom_rt_081770BC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081770C2
+mode = "thumb"
+name = "rom_rt_081770C2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081770D2
+mode = "thumb"
+name = "rom_rt_081770D2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081770F0
+mode = "thumb"
+name = "rom_rt_081770F0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081770FE
+mode = "thumb"
+name = "rom_rt_081770FE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177106
+mode = "thumb"
+name = "rom_rt_08177106"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0817710A
+mode = "thumb"
+name = "rom_rt_0817710A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177110
+mode = "thumb"
+name = "rom_rt_08177110"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177114
+mode = "thumb"
+name = "rom_rt_08177114"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177120
+mode = "thumb"
+name = "rom_rt_08177120"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177142
+mode = "thumb"
+name = "rom_rt_08177142"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177160
+mode = "thumb"
+name = "rom_rt_08177160"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177166
+mode = "thumb"
+name = "rom_rt_08177166"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0817716A
+mode = "thumb"
+name = "rom_rt_0817716A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177172
+mode = "thumb"
+name = "rom_rt_08177172"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177178
+mode = "thumb"
+name = "rom_rt_08177178"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177182
+mode = "thumb"
+name = "rom_rt_08177182"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177404
+mode = "thumb"
+name = "rom_rt_08177404"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0817770A
+mode = "thumb"
+name = "rom_rt_0817770A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177716
+mode = "thumb"
+name = "rom_rt_08177716"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177736
+mode = "thumb"
+name = "rom_rt_08177736"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177742
+mode = "thumb"
+name = "rom_rt_08177742"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081777A0
+mode = "thumb"
+name = "rom_rt_081777A0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081777AA
+mode = "thumb"
+name = "rom_rt_081777AA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177830
+mode = "thumb"
+name = "rom_rt_08177830"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0817785E
+mode = "thumb"
+name = "rom_rt_0817785E"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081778B6
+mode = "thumb"
+name = "rom_rt_081778B6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081778D0
+mode = "thumb"
+name = "rom_rt_081778D0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081778E4
+mode = "thumb"
+name = "rom_rt_081778E4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081778EC
+mode = "thumb"
+name = "rom_rt_081778EC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081778F8
+mode = "thumb"
+name = "rom_rt_081778F8"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0817794C
+mode = "thumb"
+name = "rom_rt_0817794C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0817795A
+mode = "thumb"
+name = "rom_rt_0817795A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177964
+mode = "thumb"
+name = "rom_rt_08177964"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08177978
+mode = "thumb"
+name = "rom_rt_08177978"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081779A0
+mode = "thumb"
+name = "rom_rt_081779A0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08177A2E
+mode = "thumb"
+name = "rom_rt_08177A2E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08178D9C
+mode = "thumb"
+name = "rom_rt_08178D9C"
+note = "añadida desde el registro de fallos; interpretada x63"
+
+[[extra_func]]
+addr = 0x08178E30
+mode = "thumb"
+name = "rom_rt_08178E30"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08178EC0
+mode = "thumb"
+name = "rom_rt_08178EC0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08178ECC
+mode = "thumb"
+name = "rom_rt_08178ECC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08178EE0
+mode = "thumb"
+name = "rom_rt_08178EE0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08178EE6
+mode = "thumb"
+name = "rom_rt_08178EE6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2010
+mode = "thumb"
+name = "rom_rt_081C2010"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2200
+mode = "thumb"
+name = "rom_rt_081C2200"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2212
+mode = "thumb"
+name = "rom_rt_081C2212"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C22B2
+mode = "thumb"
+name = "rom_rt_081C22B2"
+note = "añadida desde el registro de fallos; interpretada x76"
+
+[[extra_func]]
+addr = 0x081C22BE
+mode = "thumb"
+name = "rom_rt_081C22BE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2330
+mode = "thumb"
+name = "rom_rt_081C2330"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2474
+mode = "thumb"
+name = "rom_rt_081C2474"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C24FE
+mode = "thumb"
+name = "rom_rt_081C24FE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2528
+mode = "thumb"
+name = "rom_rt_081C2528"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2548
+mode = "thumb"
+name = "rom_rt_081C2548"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2610
+mode = "thumb"
+name = "rom_rt_081C2610"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2650
+mode = "thumb"
+name = "rom_rt_081C2650"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C26B0
+mode = "thumb"
+name = "rom_rt_081C26B0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C26DE
+mode = "thumb"
+name = "rom_rt_081C26DE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C27A2
+mode = "thumb"
+name = "rom_rt_081C27A2"
+note = "añadida desde el registro de fallos; interpretada x57"
+
+[[extra_func]]
+addr = 0x081C2804
+mode = "thumb"
+name = "rom_rt_081C2804"
+note = "añadida desde el registro de fallos; interpretada x57"
+
+[[extra_func]]
+addr = 0x081C2824
+mode = "thumb"
+name = "rom_rt_081C2824"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C28B4
+mode = "thumb"
+name = "rom_rt_081C28B4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C28FC
+mode = "thumb"
+name = "rom_rt_081C28FC"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x081C2928
+mode = "thumb"
+name = "rom_rt_081C2928"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x081C299E
+mode = "thumb"
+name = "rom_rt_081C299E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2BC6
+mode = "thumb"
+name = "rom_rt_081C2BC6"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x081C2C38
+mode = "thumb"
+name = "rom_rt_081C2C38"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2C56
+mode = "thumb"
+name = "rom_rt_081C2C56"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x081C4794
+mode = "thumb"
+name = "rom_rt_081C4794"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C47A8
+mode = "thumb"
+name = "rom_rt_081C47A8"
+note = "añadida desde el registro de fallos; interpretada x64"
+
+[[extra_func]]
+addr = 0x081C47FA
+mode = "thumb"
+name = "rom_rt_081C47FA"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x081C4878
+mode = "thumb"
+name = "rom_rt_081C4878"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C4BDC
+mode = "thumb"
+name = "rom_rt_081C4BDC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C4C5C
+mode = "thumb"
+name = "rom_rt_081C4C5C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C4FA4
+mode = "thumb"
+name = "rom_rt_081C4FA4"
+note = "añadida desde el registro de fallos; interpretada x2048"
+
+[[extra_func]]
+addr = 0x081C5060
+mode = "thumb"
+name = "rom_rt_081C5060"
+note = "añadida desde el registro de fallos; interpretada x2048"
+
+[[extra_func]]
+addr = 0x081C51A8
+mode = "thumb"
+name = "rom_rt_081C51A8"
+note = "añadida desde el registro de fallos; interpretada x51"
+
+[[extra_func]]
+addr = 0x081C60B8
+mode = "thumb"
+name = "rom_rt_081C60B8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C61C8
+mode = "thumb"
+name = "rom_rt_081C61C8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C6248
+mode = "thumb"
+name = "rom_rt_081C6248"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C6270
+mode = "thumb"
+name = "rom_rt_081C6270"
+note = "añadida desde el registro de fallos; interpretada x41"
+
+[[extra_func]]
+addr = 0x081C6394
+mode = "thumb"
+name = "rom_rt_081C6394"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C63EA
+mode = "thumb"
+name = "rom_rt_081C63EA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C63EC
+mode = "thumb"
+name = "rom_rt_081C63EC"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x081C642E
+mode = "thumb"
+name = "rom_rt_081C642E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x082505F0
+mode = "thumb"
+name = "rom_rt_082505F0"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x082505F8
+mode = "thumb"
+name = "rom_rt_082505F8"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x08250614
+mode = "arm"
+name = "rom_rt_08250614"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08250758
+mode = "thumb"
+name = "rom_rt_08250758"
+note = "añadida desde el registro de fallos; interpretada x23"
+
+[[extra_func]]
+addr = 0x0825083C
+mode = "thumb"
+name = "rom_rt_0825083C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x082508A2
+mode = "thumb"
+name = "rom_rt_082508A2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x082508B0
+mode = "thumb"
+name = "rom_rt_082508B0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x082508B8
+mode = "thumb"
+name = "rom_rt_082508B8"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x082508C0
+mode = "thumb"
+name = "rom_rt_082508C0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x082508CE
+mode = "thumb"
+name = "rom_rt_082508CE"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x08250924
+mode = "thumb"
+name = "rom_rt_08250924"
+note = "añadida desde el registro de fallos; interpretada x62"
+
+[[extra_func]]
+addr = 0x0825092A
+mode = "thumb"
+name = "rom_rt_0825092A"
+note = "añadida desde el registro de fallos; interpretada x32"
+
+[[extra_func]]
+addr = 0x08250938
+mode = "thumb"
+name = "rom_rt_08250938"
+note = "añadida desde el registro de fallos; interpretada x41"
+
+[[extra_func]]
+addr = 0x0825094A
+mode = "thumb"
+name = "rom_rt_0825094A"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x082509BC
+mode = "thumb"
+name = "rom_rt_082509BC"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x082509F4
+mode = "thumb"
+name = "rom_rt_082509F4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x082509FE
+mode = "thumb"
+name = "rom_rt_082509FE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08250A70
+mode = "thumb"
+name = "rom_rt_08250A70"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08250B1A
+mode = "thumb"
+name = "rom_rt_08250B1A"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08250B1E
+mode = "thumb"
+name = "rom_rt_08250B1E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08250B3C
+mode = "thumb"
+name = "rom_rt_08250B3C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08250B9C
+mode = "thumb"
+name = "rom_rt_08250B9C"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08250BBA
+mode = "thumb"
+name = "rom_rt_08250BBA"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08250BCE
+mode = "thumb"
+name = "rom_rt_08250BCE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08250BEC
+mode = "thumb"
+name = "rom_rt_08250BEC"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x08250BF6
+mode = "thumb"
+name = "rom_rt_08250BF6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08250BF8
+mode = "thumb"
+name = "rom_rt_08250BF8"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x08251078
+mode = "thumb"
+name = "rom_rt_08251078"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08252C64
+mode = "thumb"
+name = "rom_rt_08252C64"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x030006AC
+mode = "arm"
+name = "iwram_rt_030006AC"
+note = "añadida desde el registro de fallos; interpretada x212"
+
+[[extra_func]]
+addr = 0x080000C0
+mode = "thumb"
+name = "rom_rt_080000C0"
+note = "añadida desde el registro de fallos; interpretada x98"
+
+[[extra_func]]
+addr = 0x080000D0
+mode = "thumb"
+name = "rom_rt_080000D0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080000D8
+mode = "thumb"
+name = "rom_rt_080000D8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08000120
+mode = "thumb"
+name = "rom_rt_08000120"
+note = "añadida desde el registro de fallos; interpretada x1050"
+
+[[extra_func]]
+addr = 0x08000128
+mode = "thumb"
+name = "rom_rt_08000128"
+note = "añadida desde el registro de fallos; interpretada x132"
+
+[[extra_func]]
+addr = 0x080001F0
+mode = "thumb"
+name = "rom_rt_080001F0"
+note = "añadida desde el registro de fallos; interpretada x420"
+
+[[extra_func]]
+addr = 0x080003C0
+mode = "thumb"
+name = "rom_rt_080003C0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080003D0
+mode = "thumb"
+name = "rom_rt_080003D0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080003D8
+mode = "thumb"
+name = "rom_rt_080003D8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080003E0
+mode = "thumb"
+name = "rom_rt_080003E0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08024178
+mode = "thumb"
+name = "rom_rt_08024178"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x080241A0
+mode = "thumb"
+name = "rom_rt_080241A0"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08024238
+mode = "thumb"
+name = "rom_rt_08024238"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080242F8
+mode = "thumb"
+name = "rom_rt_080242F8"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x08025B2A
+mode = "thumb"
+name = "rom_rt_08025B2A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025B32
+mode = "thumb"
+name = "rom_rt_08025B32"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025EF2
+mode = "thumb"
+name = "rom_rt_08025EF2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08025F00
+mode = "thumb"
+name = "rom_rt_08025F00"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08025F06
+mode = "thumb"
+name = "rom_rt_08025F06"
+note = "añadida desde el registro de fallos; interpretada x28"
+
+[[extra_func]]
+addr = 0x08026834
+mode = "thumb"
+name = "rom_rt_08026834"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08026858
+mode = "thumb"
+name = "rom_rt_08026858"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080269F0
+mode = "thumb"
+name = "rom_rt_080269F0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08026A00
+mode = "thumb"
+name = "rom_rt_08026A00"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08026A02
+mode = "thumb"
+name = "rom_rt_08026A02"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08026A0A
+mode = "thumb"
+name = "rom_rt_08026A0A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08027420
+mode = "thumb"
+name = "rom_rt_08027420"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08027494
+mode = "thumb"
+name = "rom_rt_08027494"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08027768
+mode = "thumb"
+name = "rom_rt_08027768"
+note = "añadida desde el registro de fallos; interpretada x197"
+
+[[extra_func]]
+addr = 0x080277A4
+mode = "thumb"
+name = "rom_rt_080277A4"
+note = "añadida desde el registro de fallos; interpretada x494"
+
+[[extra_func]]
+addr = 0x08028070
+mode = "thumb"
+name = "rom_rt_08028070"
+note = "añadida desde el registro de fallos; interpretada x24"
+
+[[extra_func]]
+addr = 0x08028076
+mode = "thumb"
+name = "rom_rt_08028076"
+note = "añadida desde el registro de fallos; interpretada x22"
+
+[[extra_func]]
+addr = 0x08028288
+mode = "thumb"
+name = "rom_rt_08028288"
+note = "añadida desde el registro de fallos; interpretada x137"
+
+[[extra_func]]
+addr = 0x08028A94
+mode = "thumb"
+name = "rom_rt_08028A94"
+note = "añadida desde el registro de fallos; interpretada x152"
+
+[[extra_func]]
+addr = 0x0802DAD0
+mode = "thumb"
+name = "rom_rt_0802DAD0"
+note = "añadida desde el registro de fallos; interpretada x172"
+
+[[extra_func]]
+addr = 0x08034150
+mode = "thumb"
+name = "rom_rt_08034150"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080341E0
+mode = "thumb"
+name = "rom_rt_080341E0"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08034238
+mode = "thumb"
+name = "rom_rt_08034238"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08034288
+mode = "thumb"
+name = "rom_rt_08034288"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08034290
+mode = "thumb"
+name = "rom_rt_08034290"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x080342A0
+mode = "thumb"
+name = "rom_rt_080342A0"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080342A8
+mode = "thumb"
+name = "rom_rt_080342A8"
+note = "añadida desde el registro de fallos; interpretada x100"
+
+[[extra_func]]
+addr = 0x080342C0
+mode = "thumb"
+name = "rom_rt_080342C0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803537C
+mode = "thumb"
+name = "rom_rt_0803537C"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x080353AC
+mode = "thumb"
+name = "rom_rt_080353AC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035B78
+mode = "thumb"
+name = "rom_rt_08035B78"
+note = "añadida desde el registro de fallos; interpretada x485"
+
+[[extra_func]]
+addr = 0x08035EFE
+mode = "thumb"
+name = "rom_rt_08035EFE"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08035F30
+mode = "thumb"
+name = "rom_rt_08035F30"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08035F48
+mode = "thumb"
+name = "rom_rt_08035F48"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x08035F66
+mode = "thumb"
+name = "rom_rt_08035F66"
+note = "añadida desde el registro de fallos; interpretada x21"
+
+[[extra_func]]
+addr = 0x08035F6C
+mode = "thumb"
+name = "rom_rt_08035F6C"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x08035FA4
+mode = "thumb"
+name = "rom_rt_08035FA4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035FAA
+mode = "thumb"
+name = "rom_rt_08035FAA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08035FD4
+mode = "thumb"
+name = "rom_rt_08035FD4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08036198
+mode = "thumb"
+name = "rom_rt_08036198"
+note = "añadida desde el registro de fallos; interpretada x18"
+
+[[extra_func]]
+addr = 0x080361A2
+mode = "thumb"
+name = "rom_rt_080361A2"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x080361B4
+mode = "thumb"
+name = "rom_rt_080361B4"
+note = "añadida desde el registro de fallos; interpretada x25"
+
+[[extra_func]]
+addr = 0x0803624C
+mode = "thumb"
+name = "rom_rt_0803624C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08036276
+mode = "thumb"
+name = "rom_rt_08036276"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x080362B0
+mode = "thumb"
+name = "rom_rt_080362B0"
+note = "añadida desde el registro de fallos; interpretada x425"
+
+[[extra_func]]
+addr = 0x08036C08
+mode = "thumb"
+name = "rom_rt_08036C08"
+note = "añadida desde el registro de fallos; interpretada x34"
+
+[[extra_func]]
+addr = 0x08036C0E
+mode = "thumb"
+name = "rom_rt_08036C0E"
+note = "añadida desde el registro de fallos; interpretada x434"
+
+[[extra_func]]
+addr = 0x08036C12
+mode = "thumb"
+name = "rom_rt_08036C12"
+note = "añadida desde el registro de fallos; interpretada x494"
+
+[[extra_func]]
+addr = 0x08037008
+mode = "thumb"
+name = "rom_rt_08037008"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08037488
+mode = "thumb"
+name = "rom_rt_08037488"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080374C8
+mode = "thumb"
+name = "rom_rt_080374C8"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x0803757C
+mode = "thumb"
+name = "rom_rt_0803757C"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0803769C
+mode = "thumb"
+name = "rom_rt_0803769C"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080376D8
+mode = "thumb"
+name = "rom_rt_080376D8"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080377A0
+mode = "thumb"
+name = "rom_rt_080377A0"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080377BA
+mode = "thumb"
+name = "rom_rt_080377BA"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080377C4
+mode = "thumb"
+name = "rom_rt_080377C4"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080377E2
+mode = "thumb"
+name = "rom_rt_080377E2"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08038078
+mode = "thumb"
+name = "rom_rt_08038078"
+note = "añadida desde el registro de fallos; interpretada x25"
+
+[[extra_func]]
+addr = 0x08038098
+mode = "thumb"
+name = "rom_rt_08038098"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x080380A6
+mode = "thumb"
+name = "rom_rt_080380A6"
+note = "añadida desde el registro de fallos; interpretada x20"
+
+[[extra_func]]
+addr = 0x080380EC
+mode = "thumb"
+name = "rom_rt_080380EC"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x080380FE
+mode = "thumb"
+name = "rom_rt_080380FE"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x08038710
+mode = "thumb"
+name = "rom_rt_08038710"
+note = "añadida desde el registro de fallos; interpretada x18"
+
+[[extra_func]]
+addr = 0x0803872A
+mode = "thumb"
+name = "rom_rt_0803872A"
+note = "añadida desde el registro de fallos; interpretada x21"
+
+[[extra_func]]
+addr = 0x08038738
+mode = "thumb"
+name = "rom_rt_08038738"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x08038742
+mode = "thumb"
+name = "rom_rt_08038742"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x08038744
+mode = "thumb"
+name = "rom_rt_08038744"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x08038846
+mode = "thumb"
+name = "rom_rt_08038846"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08038874
+mode = "thumb"
+name = "rom_rt_08038874"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080388B4
+mode = "thumb"
+name = "rom_rt_080388B4"
+note = "añadida desde el registro de fallos; interpretada x49"
+
+[[extra_func]]
+addr = 0x080388BE
+mode = "thumb"
+name = "rom_rt_080388BE"
+note = "añadida desde el registro de fallos; interpretada x49"
+
+[[extra_func]]
+addr = 0x080388C8
+mode = "thumb"
+name = "rom_rt_080388C8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x080388CE
+mode = "thumb"
+name = "rom_rt_080388CE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08039036
+mode = "thumb"
+name = "rom_rt_08039036"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08039050
+mode = "thumb"
+name = "rom_rt_08039050"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803906A
+mode = "thumb"
+name = "rom_rt_0803906A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08039078
+mode = "thumb"
+name = "rom_rt_08039078"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803C67C
+mode = "thumb"
+name = "rom_rt_0803C67C"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x0803C6DC
+mode = "thumb"
+name = "rom_rt_0803C6DC"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x0803CBFA
+mode = "thumb"
+name = "rom_rt_0803CBFA"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CC16
+mode = "thumb"
+name = "rom_rt_0803CC16"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CC26
+mode = "thumb"
+name = "rom_rt_0803CC26"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CC2C
+mode = "thumb"
+name = "rom_rt_0803CC2C"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CC56
+mode = "thumb"
+name = "rom_rt_0803CC56"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CCCE
+mode = "thumb"
+name = "rom_rt_0803CCCE"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x0803CD42
+mode = "thumb"
+name = "rom_rt_0803CD42"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CD58
+mode = "thumb"
+name = "rom_rt_0803CD58"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CD5E
+mode = "thumb"
+name = "rom_rt_0803CD5E"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CD70
+mode = "thumb"
+name = "rom_rt_0803CD70"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CD76
+mode = "thumb"
+name = "rom_rt_0803CD76"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CD9E
+mode = "thumb"
+name = "rom_rt_0803CD9E"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803CE1A
+mode = "thumb"
+name = "rom_rt_0803CE1A"
+note = "añadida desde el registro de fallos; interpretada x100"
+
+[[extra_func]]
+addr = 0x0803D0A8
+mode = "thumb"
+name = "rom_rt_0803D0A8"
+note = "añadida desde el registro de fallos; interpretada x344"
+
+[[extra_func]]
+addr = 0x0803D744
+mode = "thumb"
+name = "rom_rt_0803D744"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0803D77E
+mode = "thumb"
+name = "rom_rt_0803D77E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803D7A4
+mode = "thumb"
+name = "rom_rt_0803D7A4"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x0803DACC
+mode = "thumb"
+name = "rom_rt_0803DACC"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0803DAD8
+mode = "thumb"
+name = "rom_rt_0803DAD8"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803DADE
+mode = "thumb"
+name = "rom_rt_0803DADE"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803DAE4
+mode = "thumb"
+name = "rom_rt_0803DAE4"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x0803DAF0
+mode = "thumb"
+name = "rom_rt_0803DAF0"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0803DAF6
+mode = "thumb"
+name = "rom_rt_0803DAF6"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0803DAFC
+mode = "thumb"
+name = "rom_rt_0803DAFC"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x081540B0
+mode = "thumb"
+name = "rom_rt_081540B0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081542E8
+mode = "thumb"
+name = "rom_rt_081542E8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081542FA
+mode = "thumb"
+name = "rom_rt_081542FA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158010
+mode = "thumb"
+name = "rom_rt_08158010"
+note = "añadida desde el registro de fallos; interpretada x7"
+
+[[extra_func]]
+addr = 0x08158018
+mode = "thumb"
+name = "rom_rt_08158018"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158020
+mode = "thumb"
+name = "rom_rt_08158020"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158058
+mode = "thumb"
+name = "rom_rt_08158058"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08158060
+mode = "thumb"
+name = "rom_rt_08158060"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158068
+mode = "thumb"
+name = "rom_rt_08158068"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08158078
+mode = "thumb"
+name = "rom_rt_08158078"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08158080
+mode = "thumb"
+name = "rom_rt_08158080"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081580B8
+mode = "thumb"
+name = "rom_rt_081580B8"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x081580C0
+mode = "thumb"
+name = "rom_rt_081580C0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081580D0
+mode = "thumb"
+name = "rom_rt_081580D0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081580D8
+mode = "thumb"
+name = "rom_rt_081580D8"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x081580E8
+mode = "thumb"
+name = "rom_rt_081580E8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081580F0
+mode = "thumb"
+name = "rom_rt_081580F0"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x08158108
+mode = "thumb"
+name = "rom_rt_08158108"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158110
+mode = "thumb"
+name = "rom_rt_08158110"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158120
+mode = "thumb"
+name = "rom_rt_08158120"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158140
+mode = "thumb"
+name = "rom_rt_08158140"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158178
+mode = "thumb"
+name = "rom_rt_08158178"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158180
+mode = "thumb"
+name = "rom_rt_08158180"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158188
+mode = "thumb"
+name = "rom_rt_08158188"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081581A0
+mode = "thumb"
+name = "rom_rt_081581A0"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x081581A8
+mode = "thumb"
+name = "rom_rt_081581A8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081581C8
+mode = "thumb"
+name = "rom_rt_081581C8"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081581D8
+mode = "thumb"
+name = "rom_rt_081581D8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081581F0
+mode = "thumb"
+name = "rom_rt_081581F0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158218
+mode = "thumb"
+name = "rom_rt_08158218"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158220
+mode = "thumb"
+name = "rom_rt_08158220"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158228
+mode = "thumb"
+name = "rom_rt_08158228"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158288
+mode = "thumb"
+name = "rom_rt_08158288"
+note = "añadida desde el registro de fallos; interpretada x402"
+
+[[extra_func]]
+addr = 0x081582E8
+mode = "thumb"
+name = "rom_rt_081582E8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081582F8
+mode = "thumb"
+name = "rom_rt_081582F8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158300
+mode = "thumb"
+name = "rom_rt_08158300"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815B2D0
+mode = "thumb"
+name = "rom_rt_0815B2D0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815B2E8
+mode = "thumb"
+name = "rom_rt_0815B2E8"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0815B2EE
+mode = "thumb"
+name = "rom_rt_0815B2EE"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0815B30A
+mode = "thumb"
+name = "rom_rt_0815B30A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815B316
+mode = "thumb"
+name = "rom_rt_0815B316"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815D618
+mode = "thumb"
+name = "rom_rt_0815D618"
+note = "añadida desde el registro de fallos; interpretada x105"
+
+[[extra_func]]
+addr = 0x0815D6B0
+mode = "thumb"
+name = "rom_rt_0815D6B0"
+note = "añadida desde el registro de fallos; interpretada x139"
+
+[[extra_func]]
+addr = 0x0815DCC8
+mode = "thumb"
+name = "rom_rt_0815DCC8"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x0815DCDA
+mode = "thumb"
+name = "rom_rt_0815DCDA"
+note = "añadida desde el registro de fallos; interpretada x32"
+
+[[extra_func]]
+addr = 0x0815DCDE
+mode = "thumb"
+name = "rom_rt_0815DCDE"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x0815E0EC
+mode = "thumb"
+name = "rom_rt_0815E0EC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815E0FC
+mode = "thumb"
+name = "rom_rt_0815E0FC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815E190
+mode = "thumb"
+name = "rom_rt_0815E190"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815E1F0
+mode = "thumb"
+name = "rom_rt_0815E1F0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815E1F4
+mode = "thumb"
+name = "rom_rt_0815E1F4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815E248
+mode = "thumb"
+name = "rom_rt_0815E248"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815E484
+mode = "thumb"
+name = "rom_rt_0815E484"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815E49C
+mode = "thumb"
+name = "rom_rt_0815E49C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815E4A0
+mode = "thumb"
+name = "rom_rt_0815E4A0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0815EB2C
+mode = "thumb"
+name = "rom_rt_0815EB2C"
+note = "añadida desde el registro de fallos; interpretada x25"
+
+[[extra_func]]
+addr = 0x0815EB4C
+mode = "thumb"
+name = "rom_rt_0815EB4C"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x0815EB68
+mode = "thumb"
+name = "rom_rt_0815EB68"
+note = "añadida desde el registro de fallos; interpretada x31"
+
+[[extra_func]]
+addr = 0x0815EB8A
+mode = "thumb"
+name = "rom_rt_0815EB8A"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x0815ECD6
+mode = "thumb"
+name = "rom_rt_0815ECD6"
+note = "añadida desde el registro de fallos; interpretada x391"
+
+[[extra_func]]
+addr = 0x0815ECDC
+mode = "thumb"
+name = "rom_rt_0815ECDC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081600E8
+mode = "thumb"
+name = "rom_rt_081600E8"
+note = "añadida desde el registro de fallos; interpretada x107"
+
+[[extra_func]]
+addr = 0x0816011E
+mode = "thumb"
+name = "rom_rt_0816011E"
+note = "añadida desde el registro de fallos; interpretada x19"
+
+[[extra_func]]
+addr = 0x08160180
+mode = "thumb"
+name = "rom_rt_08160180"
+note = "añadida desde el registro de fallos; interpretada x281"
+
+[[extra_func]]
+addr = 0x081601BC
+mode = "thumb"
+name = "rom_rt_081601BC"
+note = "añadida desde el registro de fallos; interpretada x529"
+
+[[extra_func]]
+addr = 0x08160334
+mode = "thumb"
+name = "rom_rt_08160334"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160344
+mode = "thumb"
+name = "rom_rt_08160344"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081605C4
+mode = "thumb"
+name = "rom_rt_081605C4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081605CE
+mode = "thumb"
+name = "rom_rt_081605CE"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x081605D6
+mode = "thumb"
+name = "rom_rt_081605D6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081605D8
+mode = "thumb"
+name = "rom_rt_081605D8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081605E0
+mode = "thumb"
+name = "rom_rt_081605E0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081605F6
+mode = "thumb"
+name = "rom_rt_081605F6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160704
+mode = "thumb"
+name = "rom_rt_08160704"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x0816070E
+mode = "thumb"
+name = "rom_rt_0816070E"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08160720
+mode = "thumb"
+name = "rom_rt_08160720"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08160728
+mode = "thumb"
+name = "rom_rt_08160728"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08160734
+mode = "thumb"
+name = "rom_rt_08160734"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08160830
+mode = "thumb"
+name = "rom_rt_08160830"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816083A
+mode = "thumb"
+name = "rom_rt_0816083A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816084E
+mode = "thumb"
+name = "rom_rt_0816084E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160856
+mode = "thumb"
+name = "rom_rt_08160856"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816086A
+mode = "thumb"
+name = "rom_rt_0816086A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160870
+mode = "thumb"
+name = "rom_rt_08160870"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160880
+mode = "thumb"
+name = "rom_rt_08160880"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816088C
+mode = "thumb"
+name = "rom_rt_0816088C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160A4C
+mode = "thumb"
+name = "rom_rt_08160A4C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160A54
+mode = "thumb"
+name = "rom_rt_08160A54"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160A6A
+mode = "thumb"
+name = "rom_rt_08160A6A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160A70
+mode = "thumb"
+name = "rom_rt_08160A70"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160A78
+mode = "thumb"
+name = "rom_rt_08160A78"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08160A82
+mode = "thumb"
+name = "rom_rt_08160A82"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08160A98
+mode = "thumb"
+name = "rom_rt_08160A98"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160AA0
+mode = "thumb"
+name = "rom_rt_08160AA0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160AB2
+mode = "thumb"
+name = "rom_rt_08160AB2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160AE4
+mode = "thumb"
+name = "rom_rt_08160AE4"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160AEC
+mode = "thumb"
+name = "rom_rt_08160AEC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160AF2
+mode = "thumb"
+name = "rom_rt_08160AF2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160B30
+mode = "thumb"
+name = "rom_rt_08160B30"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160B38
+mode = "thumb"
+name = "rom_rt_08160B38"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160B46
+mode = "thumb"
+name = "rom_rt_08160B46"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160B54
+mode = "thumb"
+name = "rom_rt_08160B54"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160B5C
+mode = "thumb"
+name = "rom_rt_08160B5C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08160B64
+mode = "thumb"
+name = "rom_rt_08160B64"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0816109C
+mode = "thumb"
+name = "rom_rt_0816109C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081610A6
+mode = "thumb"
+name = "rom_rt_081610A6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081610B6
+mode = "thumb"
+name = "rom_rt_081610B6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081610BC
+mode = "thumb"
+name = "rom_rt_081610BC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081610C4
+mode = "thumb"
+name = "rom_rt_081610C4"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x081610CC
+mode = "thumb"
+name = "rom_rt_081610CC"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081610E0
+mode = "thumb"
+name = "rom_rt_081610E0"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x08161A5C
+mode = "thumb"
+name = "rom_rt_08161A5C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161A72
+mode = "thumb"
+name = "rom_rt_08161A72"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161A88
+mode = "thumb"
+name = "rom_rt_08161A88"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161A8C
+mode = "thumb"
+name = "rom_rt_08161A8C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161A96
+mode = "thumb"
+name = "rom_rt_08161A96"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161AA2
+mode = "thumb"
+name = "rom_rt_08161AA2"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x08161ADE
+mode = "thumb"
+name = "rom_rt_08161ADE"
+note = "añadida desde el registro de fallos; interpretada x73"
+
+[[extra_func]]
+addr = 0x08161AE4
+mode = "thumb"
+name = "rom_rt_08161AE4"
+note = "añadida desde el registro de fallos; interpretada x84"
+
+[[extra_func]]
+addr = 0x08161AFE
+mode = "thumb"
+name = "rom_rt_08161AFE"
+note = "añadida desde el registro de fallos; interpretada x9"
+
+[[extra_func]]
+addr = 0x08161B3E
+mode = "thumb"
+name = "rom_rt_08161B3E"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161B44
+mode = "thumb"
+name = "rom_rt_08161B44"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161B4C
+mode = "thumb"
+name = "rom_rt_08161B4C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161B52
+mode = "thumb"
+name = "rom_rt_08161B52"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161B58
+mode = "thumb"
+name = "rom_rt_08161B58"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161B76
+mode = "thumb"
+name = "rom_rt_08161B76"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08161D34
+mode = "thumb"
+name = "rom_rt_08161D34"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08161D46
+mode = "thumb"
+name = "rom_rt_08161D46"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081624F8
+mode = "thumb"
+name = "rom_rt_081624F8"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x08162502
+mode = "thumb"
+name = "rom_rt_08162502"
+note = "añadida desde el registro de fallos; interpretada x6"
+
+[[extra_func]]
+addr = 0x08162684
+mode = "thumb"
+name = "rom_rt_08162684"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081626AC
+mode = "thumb"
+name = "rom_rt_081626AC"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08168000
+mode = "thumb"
+name = "rom_rt_08168000"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08168060
+mode = "thumb"
+name = "rom_rt_08168060"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x08168078
+mode = "thumb"
+name = "rom_rt_08168078"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x08168080
+mode = "thumb"
+name = "rom_rt_08168080"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x081680B0
+mode = "thumb"
+name = "rom_rt_081680B0"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081680C0
+mode = "thumb"
+name = "rom_rt_081680C0"
+note = "añadida desde el registro de fallos; interpretada x131"
+
+[[extra_func]]
+addr = 0x081680D8
+mode = "thumb"
+name = "rom_rt_081680D8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08168180
+mode = "thumb"
+name = "rom_rt_08168180"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x081694C8
+mode = "thumb"
+name = "rom_rt_081694C8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08172168
+mode = "thumb"
+name = "rom_rt_08172168"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x0817217C
+mode = "thumb"
+name = "rom_rt_0817217C"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081721A4
+mode = "thumb"
+name = "rom_rt_081721A4"
+note = "añadida desde el registro de fallos; interpretada x984"
+
+[[extra_func]]
+addr = 0x081721AE
+mode = "thumb"
+name = "rom_rt_081721AE"
+note = "añadida desde el registro de fallos; interpretada x397"
+
+[[extra_func]]
+addr = 0x081721B8
+mode = "thumb"
+name = "rom_rt_081721B8"
+note = "añadida desde el registro de fallos; interpretada x421"
+
+[[extra_func]]
+addr = 0x081C2000
+mode = "thumb"
+name = "rom_rt_081C2000"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2008
+mode = "thumb"
+name = "rom_rt_081C2008"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2020
+mode = "thumb"
+name = "rom_rt_081C2020"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C21A6
+mode = "thumb"
+name = "rom_rt_081C21A6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C21AC
+mode = "thumb"
+name = "rom_rt_081C21AC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C21B2
+mode = "thumb"
+name = "rom_rt_081C21B2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C21CA
+mode = "thumb"
+name = "rom_rt_081C21CA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C22D6
+mode = "thumb"
+name = "rom_rt_081C22D6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C22DC
+mode = "thumb"
+name = "rom_rt_081C22DC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C22E2
+mode = "thumb"
+name = "rom_rt_081C22E2"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C22FC
+mode = "thumb"
+name = "rom_rt_081C22FC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C2302
+mode = "thumb"
+name = "rom_rt_081C2302"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C240C
+mode = "thumb"
+name = "rom_rt_081C240C"
+note = "añadida desde el registro de fallos; interpretada x10727"
+
+[[extra_func]]
+addr = 0x081C2420
+mode = "thumb"
+name = "rom_rt_081C2420"
+note = "añadida desde el registro de fallos; interpretada x2486"
+
+[[extra_func]]
+addr = 0x081C2422
+mode = "thumb"
+name = "rom_rt_081C2422"
+note = "añadida desde el registro de fallos; interpretada x29"
+
+[[extra_func]]
+addr = 0x081C2436
+mode = "thumb"
+name = "rom_rt_081C2436"
+note = "añadida desde el registro de fallos; interpretada x25"
+
+[[extra_func]]
+addr = 0x081C243A
+mode = "thumb"
+name = "rom_rt_081C243A"
+note = "añadida desde el registro de fallos; interpretada x20"
+
+[[extra_func]]
+addr = 0x081C50B8
+mode = "thumb"
+name = "rom_rt_081C50B8"
+note = "añadida desde el registro de fallos; interpretada x64"
+
+[[extra_func]]
+addr = 0x081C6018
+mode = "thumb"
+name = "rom_rt_081C6018"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081C64B4
+mode = "thumb"
+name = "rom_rt_081C64B4"
+note = "añadida desde el registro de fallos; interpretada x53"
+
+[[extra_func]]
+addr = 0x081C64CE
+mode = "thumb"
+name = "rom_rt_081C64CE"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x081C64DC
+mode = "thumb"
+name = "rom_rt_081C64DC"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x081C64EA
+mode = "thumb"
+name = "rom_rt_081C64EA"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x081C64F8
+mode = "thumb"
+name = "rom_rt_081C64F8"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x081C650A
+mode = "thumb"
+name = "rom_rt_081C650A"
+note = "añadida desde el registro de fallos; interpretada x4"
+
+[[extra_func]]
+addr = 0x081C679A
+mode = "thumb"
+name = "rom_rt_081C679A"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08250020
+mode = "thumb"
+name = "rom_rt_08250020"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08252AB0
+mode = "thumb"
+name = "rom_rt_08252AB0"
+note = "añadida desde el registro de fallos; interpretada x9"
+
+[[extra_func]]
+addr = 0x08252ACC
+mode = "thumb"
+name = "rom_rt_08252ACC"
+note = "añadida desde el registro de fallos; interpretada x9"
+
+[[extra_func]]
+addr = 0x08252ADA
+mode = "thumb"
+name = "rom_rt_08252ADA"
+note = "añadida desde el registro de fallos; interpretada x11"
+
+[[extra_func]]
+addr = 0x08252AE8
+mode = "thumb"
+name = "rom_rt_08252AE8"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08024198
+mode = "thumb"
+name = "rom_rt_08024198"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802F462
+mode = "thumb"
+name = "rom_rt_0802F462"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802F46C
+mode = "thumb"
+name = "rom_rt_0802F46C"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0802F470
+mode = "thumb"
+name = "rom_rt_0802F470"
+note = "añadida desde el registro de fallos; interpretada x74"
+
+[[extra_func]]
+addr = 0x0802F488
+mode = "thumb"
+name = "rom_rt_0802F488"
+note = "añadida desde el registro de fallos; interpretada x104"
+
+[[extra_func]]
+addr = 0x0802F490
+mode = "thumb"
+name = "rom_rt_0802F490"
+note = "añadida desde el registro de fallos; interpretada x84"
+
+[[extra_func]]
+addr = 0x0802F6DA
+mode = "thumb"
+name = "rom_rt_0802F6DA"
+note = "añadida desde el registro de fallos; interpretada x93"
+
+[[extra_func]]
+addr = 0x08039538
+mode = "thumb"
+name = "rom_rt_08039538"
+note = "añadida desde el registro de fallos; interpretada x9"
+
+[[extra_func]]
+addr = 0x08039552
+mode = "thumb"
+name = "rom_rt_08039552"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x08039554
+mode = "thumb"
+name = "rom_rt_08039554"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803A278
+mode = "thumb"
+name = "rom_rt_0803A278"
+note = "añadida desde el registro de fallos; interpretada x21"
+
+[[extra_func]]
+addr = 0x0803A29A
+mode = "thumb"
+name = "rom_rt_0803A29A"
+note = "añadida desde el registro de fallos; interpretada x19"
+
+[[extra_func]]
+addr = 0x0803A2A8
+mode = "thumb"
+name = "rom_rt_0803A2A8"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x0803A2B2
+mode = "thumb"
+name = "rom_rt_0803A2B2"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x0803A2B8
+mode = "thumb"
+name = "rom_rt_0803A2B8"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x0803A2C0
+mode = "thumb"
+name = "rom_rt_0803A2C0"
+note = "añadida desde el registro de fallos; interpretada x12"
+
+[[extra_func]]
+addr = 0x0803A2CA
+mode = "thumb"
+name = "rom_rt_0803A2CA"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x0803A2D2
+mode = "thumb"
+name = "rom_rt_0803A2D2"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x0803A2F2
+mode = "thumb"
+name = "rom_rt_0803A2F2"
+note = "añadida desde el registro de fallos; interpretada x17"
+
+[[extra_func]]
+addr = 0x0803A314
+mode = "thumb"
+name = "rom_rt_0803A314"
+note = "añadida desde el registro de fallos; interpretada x24"
+
+[[extra_func]]
+addr = 0x0803A328
+mode = "thumb"
+name = "rom_rt_0803A328"
+note = "añadida desde el registro de fallos; interpretada x23"
+
+[[extra_func]]
+addr = 0x0803A338
+mode = "thumb"
+name = "rom_rt_0803A338"
+note = "añadida desde el registro de fallos; interpretada x43"
+
+[[extra_func]]
+addr = 0x0803A354
+mode = "thumb"
+name = "rom_rt_0803A354"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x0803A374
+mode = "thumb"
+name = "rom_rt_0803A374"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x0803A37C
+mode = "thumb"
+name = "rom_rt_0803A37C"
+note = "añadida desde el registro de fallos; interpretada x22"
+
+[[extra_func]]
+addr = 0x0803A3A6
+mode = "thumb"
+name = "rom_rt_0803A3A6"
+note = "añadida desde el registro de fallos; interpretada x10"
+
+[[extra_func]]
+addr = 0x0803A3AE
+mode = "thumb"
+name = "rom_rt_0803A3AE"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x0803A3B6
+mode = "thumb"
+name = "rom_rt_0803A3B6"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x0803A3BE
+mode = "thumb"
+name = "rom_rt_0803A3BE"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x0803A3C2
+mode = "thumb"
+name = "rom_rt_0803A3C2"
+note = "añadida desde el registro de fallos; interpretada x13"
+
+[[extra_func]]
+addr = 0x0803E196
+mode = "thumb"
+name = "rom_rt_0803E196"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803E1A6
+mode = "thumb"
+name = "rom_rt_0803E1A6"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803E1AC
+mode = "thumb"
+name = "rom_rt_0803E1AC"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803E1B0
+mode = "thumb"
+name = "rom_rt_0803E1B0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803E1B8
+mode = "thumb"
+name = "rom_rt_0803E1B8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803E1C0
+mode = "thumb"
+name = "rom_rt_0803E1C0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803E1CA
+mode = "thumb"
+name = "rom_rt_0803E1CA"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x0803E1CE
+mode = "thumb"
+name = "rom_rt_0803E1CE"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081580E0
+mode = "thumb"
+name = "rom_rt_081580E0"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x08158260
+mode = "thumb"
+name = "rom_rt_08158260"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081602D8
+mode = "thumb"
+name = "rom_rt_081602D8"
+note = "añadida desde el registro de fallos; interpretada x1"
+
+[[extra_func]]
+addr = 0x081A6F90
+mode = "thumb"
+name = "rom_rt_081A6F90"
+note = "añadida desde el registro de fallos; interpretada x132"
+
+[[extra_func]]
+addr = 0x081A6FD0
+mode = "thumb"
+name = "rom_rt_081A6FD0"
+note = "añadida desde el registro de fallos; interpretada x8"
+
+[[extra_func]]
+addr = 0x081A6FDC
+mode = "thumb"
+name = "rom_rt_081A6FDC"
+note = "añadida desde el registro de fallos; interpretada x34"
+
+[[extra_func]]
+addr = 0x081A6FFC
+mode = "thumb"
+name = "rom_rt_081A6FFC"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x080241E8
+mode = "thumb"
+name = "rom_rt_080241E8"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x08025E96
+mode = "thumb"
+name = "rom_rt_08025E96"
+note = "añadida desde el registro de fallos; interpretada x5348"
+
+[[extra_func]]
+addr = 0x08158088
+mode = "thumb"
+name = "rom_rt_08158088"
+note = "añadida desde el registro de fallos; interpretada x3"
+
+[[extra_func]]
+addr = 0x08158210
+mode = "thumb"
+name = "rom_rt_08158210"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081CAC0C
+mode = "thumb"
+name = "rom_rt_081CAC0C"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x08014E58
+mode = "thumb"
+name = "rom_rt_08014E58"
+note = "añadida desde el registro de fallos; interpretada x5"
+
+[[extra_func]]
+addr = 0x081CAC36
+mode = "thumb"
+name = "rom_rt_081CAC36"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081CC018
+mode = "thumb"
+name = "rom_rt_081CC018"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081CC892
+mode = "thumb"
+name = "rom_rt_081CC892"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x081CC8B8
+mode = "thumb"
+name = "rom_rt_081CC8B8"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x081D14C4
+mode = "thumb"
+name = "rom_rt_081D14C4"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D1666
+mode = "thumb"
+name = "rom_rt_081D1666"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D1678
+mode = "thumb"
+name = "rom_rt_081D1678"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D1688
+mode = "thumb"
+name = "rom_rt_081D1688"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D16FE
+mode = "thumb"
+name = "rom_rt_081D16FE"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D1708
+mode = "thumb"
+name = "rom_rt_081D1708"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D1840
+mode = "thumb"
+name = "rom_rt_081D1840"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D196C
+mode = "thumb"
+name = "rom_rt_081D196C"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D198C
+mode = "thumb"
+name = "rom_rt_081D198C"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D19A4
+mode = "thumb"
+name = "rom_rt_081D19A4"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D1A48
+mode = "thumb"
+name = "rom_rt_081D1A48"
+note = "añadida desde el registro de fallos; interpretada x29"
+
+[[extra_func]]
+addr = 0x081D1A74
+mode = "thumb"
+name = "rom_rt_081D1A74"
+note = "añadida desde el registro de fallos; interpretada x29"
+
+[[extra_func]]
+addr = 0x081D1A7E
+mode = "thumb"
+name = "rom_rt_081D1A7E"
+note = "añadida desde el registro de fallos; interpretada x29"
+
+[[extra_func]]
+addr = 0x081D1AB2
+mode = "thumb"
+name = "rom_rt_081D1AB2"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D1ABC
+mode = "thumb"
+name = "rom_rt_081D1ABC"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D1BD6
+mode = "thumb"
+name = "rom_rt_081D1BD6"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x081D1BE2
+mode = "thumb"
+name = "rom_rt_081D1BE2"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x081D1BEC
+mode = "thumb"
+name = "rom_rt_081D1BEC"
+note = "añadida desde el registro de fallos; interpretada x15"
+
+[[extra_func]]
+addr = 0x081D1C1E
+mode = "thumb"
+name = "rom_rt_081D1C1E"
+note = "añadida desde el registro de fallos; interpretada x2299"
+
+[[extra_func]]
+addr = 0x081D1C28
+mode = "thumb"
+name = "rom_rt_081D1C28"
+note = "añadida desde el registro de fallos; interpretada x2299"
+
+[[extra_func]]
+addr = 0x081D1C68
+mode = "thumb"
+name = "rom_rt_081D1C68"
+note = "añadida desde el registro de fallos; interpretada x2"
+
+[[extra_func]]
+addr = 0x081D1F64
+mode = "thumb"
+name = "rom_rt_081D1F64"
+note = "añadida desde el registro de fallos; interpretada x4656"
+
+[[extra_func]]
+addr = 0x081D20BE
+mode = "thumb"
+name = "rom_rt_081D20BE"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x081D229C
+mode = "thumb"
+name = "rom_rt_081D229C"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x081D26F2
+mode = "thumb"
+name = "rom_rt_081D26F2"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D5E08
+mode = "thumb"
+name = "rom_rt_081D5E08"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D5E20
+mode = "thumb"
+name = "rom_rt_081D5E20"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D6290
+mode = "thumb"
+name = "rom_rt_081D6290"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081D7422
+mode = "thumb"
+name = "rom_rt_081D7422"
+note = "añadida desde el registro de fallos; interpretada x1499"
+
+[[extra_func]]
+addr = 0x081D74E2
+mode = "thumb"
+name = "rom_rt_081D74E2"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x081D74EC
+mode = "thumb"
+name = "rom_rt_081D74EC"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x081D7538
+mode = "thumb"
+name = "rom_rt_081D7538"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x081D753C
+mode = "thumb"
+name = "rom_rt_081D753C"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x081D755C
+mode = "thumb"
+name = "rom_rt_081D755C"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x081D7560
+mode = "thumb"
+name = "rom_rt_081D7560"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x081D7588
+mode = "thumb"
+name = "rom_rt_081D7588"
+note = "añadida desde el registro de fallos; interpretada x14"
+
+[[extra_func]]
+addr = 0x081D2B8C
+mode = "thumb"
+name = "rom_rt_081D2B8C"
+note = "añadida desde el registro de fallos; interpretada x70"
+
+[[extra_func]]
+addr = 0x081D2D8A
+mode = "thumb"
+name = "rom_rt_081D2D8A"
+note = "añadida desde el registro de fallos; interpretada x1324"
+
+[[extra_func]]
+addr = 0x081D2D92
+mode = "thumb"
+name = "rom_rt_081D2D92"
+note = "añadida desde el registro de fallos; interpretada x934"
+
+[[extra_func]]
+addr = 0x081D2F82
+mode = "thumb"
+name = "rom_rt_081D2F82"
+note = "añadida desde el registro de fallos; interpretada x63"
+
+[[extra_func]]
+addr = 0x081D80EA
+mode = "thumb"
+name = "rom_rt_081D80EA"
+note = "añadida desde el registro de fallos; interpretada x2328"
+
+[[extra_func]]
+addr = 0x081CC8A4
+mode = "thumb"
+name = "rom_rt_081CC8A4"
+note = "añadida desde el registro de fallos; interpretada x16"
+
+[[extra_func]]
+addr = 0x081D2DA2
+mode = "thumb"
+name = "rom_rt_081D2DA2"
+note = "añadida desde el registro de fallos; interpretada x2328"
