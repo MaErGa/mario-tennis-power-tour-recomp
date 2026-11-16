@@ -12,3 +12,11 @@ herramientas/
 descargas/
 cache-zig/
 icono*.ico
+# Partidas y copias de seguridad (son de cada persona)
+copias-de-partidas/
+capturas/
+*.sav.*
+*.state[0-9]
+# Basura de Python y de las pruebas
+__pycache__/
+recomp_cache/

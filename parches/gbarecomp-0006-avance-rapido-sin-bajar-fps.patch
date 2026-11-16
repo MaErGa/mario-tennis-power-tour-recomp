@@ -1,0 +1,302 @@
+diff --git a/src/gba/gba_ppu.cpp b/src/gba/gba_ppu.cpp
+index 8e06758..f4c9d61 100644
+--- a/src/gba/gba_ppu.cpp
++++ b/src/gba/gba_ppu.cpp
+@@ -122,6 +122,8 @@ void GbaPpu::deserialize(gbarecomp::debug::SnapshotReader& r) {
+     cycle_in_dot_    = r.u32();
+     vcount_          = r.u16();
+     frame_count_     = r.u64();
++    frame_skipped_ = false;
++    latched_rasterized_ = true;
+     const bool serialized_latch = r.boolean();
+     if (!view_expanded()) {
+         // Historical native-width restore path, deliberately unchanged.
+@@ -172,6 +174,8 @@ void GbaPpu::reset() {
+     cycle_in_dot_ = 0;
+     vcount_ = 0;
+     frame_count_ = 0;
++    frame_skipped_ = false;
++    latched_rasterized_ = true;
+     has_latched_fb_ = false;
+     affine_line_ = {};
+     std::memset(latched_fb_.data(), 0xFF, latched_fb_.size());
+@@ -220,6 +224,7 @@ GbaPpu::TickEvents GbaPpu::tick(uint32_t cycles, uint16_t vcount_compare) {
+             if (scanline_ >= kLinesTotal) {
+                 scanline_ = 0;
+                 ++frame_count_;
++                frame_skipped_ = false;
+                 ev.frame_completed = true;
+             }
+             vcount_ = static_cast<uint16_t>(scanline_);
+@@ -2466,7 +2471,10 @@ void GbaPpu::render_scanline(uint32_t y,
+         state.y += pd;
+     }
+ 
+-    if (!rasterization_enabled_) return;
++    if (!rasterization_enabled_) {
++        if (y < kScreenHeight) frame_skipped_ = true;
++        return;
++    }
+     if (!view_expanded()) {
+         render_scanline_internal(work_fb_.data(), y, dispcnt,
+                                  affine_io.data(), vram, oam, pal,
+@@ -2513,6 +2521,7 @@ void GbaPpu::latch_framebuffer(uint16_t dispcnt,
+ void GbaPpu::mark_framebuffer_latched() {
+     if (rasterization_enabled_)
+         std::memcpy(latched_fb_.data(), work_fb_.data(), render_bytes());
++    latched_rasterized_ = rasterization_enabled_ && !frame_skipped_;
+     has_latched_fb_ = true;
+     if (presentation_) presentation_->frame_ready();
+ }
+@@ -2522,6 +2531,7 @@ void GbaPpu::set_rasterization_enabled(bool enabled) {
+     if (!enabled) {
+         std::fill(work_fb_.begin(),work_fb_.end(),0);
+         std::fill(latched_fb_.begin(),latched_fb_.end(),0);
++        latched_rasterized_ = false;
+     }
+ }
+ 
+diff --git a/src/gba/gba_ppu.h b/src/gba/gba_ppu.h
+index 5c521b9..8f215d8 100644
+--- a/src/gba/gba_ppu.h
++++ b/src/gba/gba_ppu.h
+@@ -186,11 +186,17 @@ public:
+     void mark_framebuffer_latched();
+     const uint8_t* latched_framebuffer() const { return latched_fb_.data(); }
+     bool has_latched_framebuffer() const { return has_latched_fb_; }
++    // PARCHE mario-tennis: el último fotograma enganchado se pintó entero
++    // (con la rasterización activada durante todas sus líneas visibles).
++    // Con el avance rápido se saltan fotogramas; ese no debe dibujarse.
++    bool latched_is_rasterized() const { return latched_rasterized_; }
+ 
+ private:
+     friend class SimulationStateCodec;
+     PresentationObserver* presentation_ = nullptr; // borrowed; not serialized
+     bool rasterization_enabled_ = true; // host configuration, not serialized
++    bool frame_skipped_ = false;        // alguna línea visible de este fotograma no se pintó
++    bool latched_rasterized_ = true;    // el fotograma enganchado es una imagen real
+     uint32_t scanline_        = 0;   // 0..227
+     uint32_t dot_in_scanline_ = 0;   // 0..307 (in dots, not cycles)
+     uint32_t cycle_in_dot_    = 0;   // 0..3
+diff --git a/src/runtime/runtime.cpp b/src/runtime/runtime.cpp
+index 5b99be3..065ad2c 100644
+--- a/src/runtime/runtime.cpp
++++ b/src/runtime/runtime.cpp
+@@ -3287,6 +3287,147 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+     bool fast_forward_active = false;
+     int fast_forward_multiplier = std::clamp(
+         win.fast_forward_multiplier(), 2, 10);
++    // PARCHE mario-tennis: avance rápido (Tab), versión 0.3.3.
++    // Lo que cuesta un fotograma emulado (e) y lo que cuesta DIBUJAR uno más de la cuenta
++    // (d: pintarlo, componer el filtro, presentarlo, dejar pasar el sistema) dependen del
++    // equipo, así que se miden mientras dura el avance y las dos decisiones se toman con
++    // esas medidas:
++    //  - El PPU solo pinta los fotogramas que se van a dibujar (el resto sigue
++    //    emulándose igual, también el estado interno de los fondos afines).
++    //  - Cada cuánto se dibuja: nunca más de una imagen cada ~16,7 ms y, si dibujar es
++    //    caro, solo lo justo para que dibujar no se coma más del 30 % del tiempo (con
++    //    un mínimo de ~15 imágenes por segundo). Dibujar de más no hace el juego más
++    //    lento solo en equipos lentos: es lo que impedía pasar de x1,4.
++    //  - Velocidad: tope de xN (N = multiplicador) con un reloj acumulado, sin
++    //    "recuperar" las esperas que se pasan de largo: si el equipo no llega a xN, el
++    //    juego va todo lo rápido que permita y no se espera nunca.
++    // Sin avance rápido no se toca nada.
++    using MtpReloj = std::chrono::steady_clock;
++    auto mtp_ms = [](MtpReloj::time_point a, MtpReloj::time_point b) {
++        return std::chrono::duration<double, std::milli>(b - a).count();
++    };
++    constexpr double kMtpPeriodoMs = 1000.0 / 59.7275;   // un fotograma de la GBA
++    auto mtp_ultimo_dibujo = MtpReloj::now();
++    int  mtp_desde_dibujo = 0;      // fotogramas emulados desde el último dibujado
++    bool mtp_pintado = true;        // el PPU pinta el fotograma en curso
++    auto mtp_toca_dibujar = [&](uint64_t) -> bool {
++        return mtp_pintado;         // solo se puede dibujar un fotograma que el PPU ha pintado
++    };
++    MtpReloj::time_point mtp_h0{};            // inicio del gancho actual
++    MtpReloj::time_point mtp_fin_anterior{};  // fin del gancho anterior
++    double mtp_espera_ms = 0;                 // espera del reloj dentro del gancho actual
++    double mtp_intervalo_ms = 0;              // emulación entre el gancho anterior y este
++    double mtp_e_ms = 6.0;                    // fotograma emulado sin dibujar (media móvil)
++    double mtp_d_ms = 4.0;                    // sobrecoste de dibujar uno (media móvil)
++    MtpReloj::time_point mtp_meta{};          // reloj acumulado del tope de velocidad
++    bool mtp_meta_ok = false;
++    // Medidas y título («turbo x2,3 | 31 img/s | emu 4.1 ms | dib 9.7 ms»): lo que da de sí
++    // el equipo, para ver si el avance funciona. Cada segundo; al soltar vuelve el título.
++    auto mtp_turbo_desde = MtpReloj::now();
++    uint64_t mtp_turbo_frames = 0;
++    uint64_t mtp_turbo_imagenes = 0;
++    bool mtp_titulo_turbo = false;
++    const bool mtp_diag = std::getenv("GBARECOMP_MTP_DIAG") != nullptr;
++    auto mtp_inicio_gancho = [&]() {
++        mtp_h0 = MtpReloj::now();
++        mtp_espera_ms = 0;
++        mtp_intervalo_ms = mtp_fin_anterior.time_since_epoch().count() != 0
++                               ? mtp_ms(mtp_fin_anterior, mtp_h0) : 0.0;
++    };
++    auto mtp_esperar_tope = [&](int fotogramas) {
++        // Tope xN: esos fotogramas deberían haber tardado fotogramas * 16,74 / N ms.
++        if (!pacer) return;
++        const auto t0 = MtpReloj::now();
++        const auto ciclo = std::chrono::duration_cast<MtpReloj::duration>(
++            std::chrono::duration<double, std::milli>(
++                fotogramas * kMtpPeriodoMs / fast_forward_multiplier));
++        if (!mtp_meta_ok || t0 - mtp_meta > std::chrono::milliseconds(100)) {
++            mtp_meta = t0;                      // atrasados: no se recupera el tiempo perdido
++            mtp_meta_ok = true;
++        }
++        mtp_meta += ciclo;
++        if (mtp_meta - t0 > std::chrono::microseconds(300)) {
++            if (mtp_meta - t0 > std::chrono::milliseconds(3))
++                std::this_thread::sleep_until(mtp_meta - std::chrono::microseconds(2000));
++            while (MtpReloj::now() < mtp_meta) std::this_thread::yield();
++        }
++        mtp_espera_ms += mtp_ms(t0, MtpReloj::now());
++    };
++    auto mtp_fin_dibujo = [&]() {
++        if (fast_forward_active) {
++            ++mtp_turbo_imagenes;
++            mtp_esperar_tope(mtp_desde_dibujo + 1);
++        } else if (pacer) {
++            pacer->wait_for_next_frame();
++        }
++        mtp_ultimo_dibujo = MtpReloj::now();
++        mtp_desde_dibujo = 0;
++    };
++    auto mtp_actualizar_titulo = [&](MtpReloj::time_point ahora) {
++        const char* base = opts.builtin_game_name && *opts.builtin_game_name
++                               ? opts.builtin_game_name : GBARECOMP_WINDOW_TITLE;
++        if (!fast_forward_active) {
++            if (mtp_titulo_turbo) { win.set_title(base); mtp_titulo_turbo = false; }
++            mtp_turbo_desde = ahora;
++            mtp_turbo_frames = 0;
++            mtp_turbo_imagenes = 0;
++            mtp_meta_ok = false;
++            return;
++        }
++        ++mtp_turbo_frames;
++        const double seg = std::chrono::duration<double>(ahora - mtp_turbo_desde).count();
++        if (seg >= 1.0) {
++            char texto[224];
++            std::snprintf(texto, sizeof(texto),
++                          "%s - turbo x%.1f | %.0f img/s | emu %.1f ms | dib %.1f ms", base,
++                          static_cast<double>(mtp_turbo_frames) / seg / 59.7275,
++                          static_cast<double>(mtp_turbo_imagenes) / seg, mtp_e_ms, mtp_d_ms);
++            win.set_title(texto);
++            if (mtp_diag) std::fprintf(stderr, "[mtp] %s\n", texto);
++            mtp_titulo_turbo = true;
++            mtp_turbo_desde = ahora;
++            mtp_turbo_frames = 0;
++            mtp_turbo_imagenes = 0;
++        }
++    };
++    int mtp_racha_pintados = 0;     // fotogramas seguidos dibujados (para no perder la medida e)
++    auto mtp_preparar_siguiente = [&]() {
++        const auto ahora = MtpReloj::now();
++        if (fast_forward_active) {
++            // Lo que ha costado este fotograma: emulación + gancho (sin esperas). Las
++            // muestras muy altas (un tirón del sistema) se recortan para que una sola no
++            // dispare la media.
++            const double coste = mtp_intervalo_ms + mtp_ms(mtp_h0, ahora) - mtp_espera_ms;
++            if (coste > 0.0 && coste < 250.0) {
++                if (!mtp_pintado)
++                    mtp_e_ms += 0.1 * (std::min(coste, 2.5 * mtp_e_ms + 1.0) - mtp_e_ms);
++                else
++                    mtp_d_ms += 0.15 * (std::clamp(coste - mtp_e_ms, 0.0, 4.0 * mtp_d_ms + 5.0) -
++                                        mtp_d_ms);
++            }
++        }
++        mtp_actualizar_titulo(ahora);
++        mtp_fin_anterior = MtpReloj::now();   // el título (SDL) no cuenta como emulación
++        if (!fast_forward_active && mtp_pintado) return;   // juego normal: no se toca nada
++        bool pintar = true;
++        if (fast_forward_active) {
++            // Cada cuántos ms interesa una imagen: dibujar no debe comerse más del 30 %.
++            const double t_img = std::clamp(mtp_d_ms / 0.30, kMtpPeriodoMs, 66.0);
++            // Tope de fotogramas por imagen para no pasar de xN.
++            const int tope = std::max(
++                2, static_cast<int>(std::ceil(fast_forward_multiplier * t_img / kMtpPeriodoMs)));
++            const int proximo = mtp_desde_dibujo + 1;
++            const double transcurrido = mtp_ms(mtp_ultimo_dibujo, ahora);
++            pintar = proximo >= tope || transcurrido + mtp_e_ms + mtp_d_ms >= t_img;
++            // Si siempre toca dibujar no habría forma de medir un fotograma sin dibujar:
++            // de vez en cuando se salta uno para que las medidas sigan al día.
++            if (pintar && mtp_racha_pintados >= 30 && proximo < tope) pintar = false;
++            if (!pintar) mtp_desde_dibujo = proximo;
++        }
++        mtp_racha_pintados = pintar ? mtp_racha_pintados + 1 : 0;
++        if (pintar != mtp_pintado) ppu.set_rasterization_enabled(pintar);
++        mtp_pintado = pintar;
++    };
+     auto capture_rewind_point = [&]() {
+         if (!rewind_capacity || !assist_tools_enabled()) return;
+         const uint64_t frame = ppu.frame_count();
+@@ -4143,14 +4284,18 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+                 uint64_t fp_t3 = 0;
+                 uint64_t fp_t4 = 0;
+                 if (phase_active) fp_t0 = FramePhaseRing::now_ns();
+-                const bool present_frame = !fast_forward_active ||
+-                    (frame % static_cast<uint64_t>(
+-                         fast_forward_multiplier) == 0);
++                mtp_inicio_gancho();   // PARCHE mario-tennis
++                bool present_frame = mtp_toca_dibujar(frame);
+                 if (present_frame) {
+                     const bool view_changed = sync_resize_driven_view();
+                     if (ppu.has_latched_framebuffer() && !view_changed) {
+-                        std::memcpy(live_fb.data(), ppu.latched_framebuffer(),
+-                                    ppu.render_bytes());
++                        // PARCHE mario-tennis: un fotograma que el PPU no pintó
++                        // (avance rápido) saldría en negro: no se dibuja.
++                        if (ppu.latched_is_rasterized())
++                            std::memcpy(live_fb.data(), ppu.latched_framebuffer(),
++                                        ppu.render_bytes());
++                        else
++                            present_frame = false;
+                     } else {
+                         ppu.render(live_fb.data(), bus.io().read16(0x000),
+                                    bus.io().raw(), bus.vram_ptr(), bus.oam_ptr(),
+@@ -4185,8 +4330,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+                     ++frames_presented;
+                     if (args.frames >= 0 && frames_presented >= args.frames)
+                         host_quit = true;
+-                    if (pacer) pacer->wait_for_next_frame();
++                    mtp_fin_dibujo();   // PARCHE mario-tennis
+                 }
++                mtp_preparar_siguiente();   // PARCHE mario-tennis
+                 if (phase_active) {
+                     frame_phase.record(frame, fp_t0, fp_t1, fp_t2, fp_t3,
+                                        fp_t4, FramePhaseRing::now_ns());
+@@ -4577,14 +4723,18 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+                 uint64_t fp_t3 = 0;
+                 uint64_t fp_t4 = 0;
+                 if (phase_active) fp_t0 = FramePhaseRing::now_ns();
+-                const bool present_frame = !fast_forward_active ||
+-                    (frame % static_cast<uint64_t>(
+-                         fast_forward_multiplier) == 0);
++                mtp_inicio_gancho();   // PARCHE mario-tennis
++                bool present_frame = mtp_toca_dibujar(frame);
+                 if (present_frame) {
+                     const bool view_changed = sync_resize_driven_view();
+                     if (ppu.has_latched_framebuffer() && !view_changed) {
+-                        std::memcpy(live_fb.data(), ppu.latched_framebuffer(),
+-                                    ppu.render_bytes());
++                        // PARCHE mario-tennis: un fotograma que el PPU no pintó
++                        // (avance rápido) saldría en negro: no se dibuja.
++                        if (ppu.latched_is_rasterized())
++                            std::memcpy(live_fb.data(), ppu.latched_framebuffer(),
++                                        ppu.render_bytes());
++                        else
++                            present_frame = false;
+                     } else {
+                         ppu.render(live_fb.data(), bus.io().read16(0x000),
+                                    bus.io().raw(), bus.vram_ptr(), bus.oam_ptr(),
+@@ -4625,8 +4775,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+                     // Normal play presents/paces every frame. Fast-forward
+                     // runs N guest frames per one paced host presentation,
+                     // making its selected multiplier independent of monitor Hz.
+-                    if (pacer) pacer->wait_for_next_frame();
++                    mtp_fin_dibujo();   // PARCHE mario-tennis
+                 }
++                mtp_preparar_siguiente();   // PARCHE mario-tennis
+                 if (phase_active) {
+                     frame_phase.record(frame, fp_t0, fp_t1, fp_t2, fp_t3,
+                                        fp_t4, FramePhaseRing::now_ns());

@@ -9,11 +9,15 @@
 //   - los modos de pantalla (3:2 nativo, 16:9 estirado, 16:9 con barras difuminadas).
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
+#include "gba_bus.h"
 #include "runtime.h"
 #include "runtime_arm.h"
+#include "runtime_bus_bridge.h"
 
 #if defined(GBAGAME_RECOMP_UI)
 #include "game_launcher_boot.h"
@@ -37,10 +41,23 @@ constexpr TramoIwram kTramos[] = {
 // ¿Coinciden con la ROM los 16 bytes de RAM que empiezan en la palabra de `pc`?
 // Si el juego sobrescribe ese código con otro, el despacho estático
 // (recompilado de la imagen original) ya no vale y hay que interpretar.
+//
+// Esta comprobación se hace en CADA despacho de código de IWRAM, y leer 8 palabras
+// por el puente del bus (con sus contadores y comprobaciones) llegaba a ser más de
+// la mitad del tiempo de CPU de un partido. La vía rápida compara los 16 bytes
+// directamente en memoria (IWRAM y ROM no tienen efectos al leerse); el puente
+// queda para el caso raro de que haya una sustitución de lecturas de ROM activa.
 bool ram_coincide_con_rom(const TramoIwram& t, std::uint32_t pc) {
     std::uint32_t desde = pc & ~3u;
     if (desde + 16u > t.ram + t.tam) desde = t.ram + t.tam - 16u;
     const std::uint32_t rom = t.rom + (desde - t.ram);
+    const gba::GbaBus* bus = gbarecomp::active_bus();
+    if (bus && gba::g_rom_read32_override == nullptr && bus->rom_ptr() != nullptr &&
+        desde >= 0x03000000u && desde + 16u <= 0x03008000u &&
+        rom >= 0x08000000u && (rom - 0x08000000u) + 16u <= bus->rom_size()) {
+        return std::memcmp(bus->iwram_ptr() + (desde & 0x7FFFu),
+                           bus->rom_ptr() + (rom - 0x08000000u), 16u) == 0;
+    }
     for (std::uint32_t i = 0; i < 16u; i += 4u)
         if (bus_read_u32(desde + i) != bus_read_u32(rom + i)) return false;
     return true;
@@ -104,6 +121,26 @@ const char* const kEtiquetasAspecto[] = {
 const std::uint16_t kAnchosAspecto[] = {
     kAnchoNativo, kAnchoEstirado, kAnchoDifuminado};
 
+// ── Filtro de imagen («Texture filtering» del menú) ────────────────────────────
+// Un solo selector con lo que antes eran dos filas (Nearest/Linear/Sharp) más los
+// filtros de escalado y de pantalla que añade el parche 0004:
+//   0 Nearest            píxeles cuadrados, sin suavizar (el original).
+//   1 Linear             suavizado de la tarjeta gráfica (borroso, pero sin cuadrículas).
+//   2 Sharp fractional   amplía por un número entero y suaviza solo el último ajuste:
+//                        nítido incluso con tamaños de ventana no enteros.
+//   3 Scale2x  4 Scale3x  5 Scale4x
+//                        escaladores de pixel art (AdvMAME): redondean diagonales y
+//                        curvas de sprites, fondos y TEXTO sin emborronar.
+//   6 HD smooth          Scale4x con un suavizado ligero: aspecto «remasterizado».
+//   7 LCD grid (GBA)     la rejilla de píxeles de la pantalla de la consola.
+//   8 CRT scanlines      líneas de barrido de un monitor de tubo.
+// Se combinan con «Screen» (modelo de color de la pantalla de la GBA).
+const char* const kEtiquetasFiltro[] = {
+    "Nearest", "Linear", "Sharp fractional", "Scale2x", "Scale3x", "Scale4x",
+    "HD smooth", "LCD grid (GBA)", "CRT scanlines"};
+const int kValoresFiltro[] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
+constexpr int kNumFiltros = static_cast<int>(sizeof(kValoresFiltro) / sizeof(kValoresFiltro[0]));
+
 void fijar_entorno(const char* nombre, const char* valor) {
 #if defined(_WIN32)
     _putenv_s(nombre, valor);
@@ -115,6 +152,7 @@ void fijar_entorno(const char* nombre, const char* valor) {
 // Traduce a ajustes del runtime lo que el menú o la línea de órdenes pidieron:
 //   --view-width 241 / --stretch   ->  modo estirado   (GBARECOMP_STRETCH=1)
 //   --view-width 242 / --blur-bars ->  barras difuminadas (GBARECOMP_STRETCH=2)
+//   --image-filter N                ->  filtro de imagen   (GBARECOMP_FILTRO=N, 0..8)
 // y los quita de la lista para que run_game() no los vea.
 void aplicar_modo_pantalla(std::vector<std::string>& args) {
     std::vector<std::string> salida;
@@ -131,6 +169,11 @@ void aplicar_modo_pantalla(std::vector<std::string>& args) {
                 ++i;
                 continue;
             }
+        }
+        if (args[i] == "--image-filter" && i + 1 < args.size()) {
+            fijar_entorno("GBARECOMP_FILTRO", args[i + 1].c_str());
+            ++i;  // salta también el valor
+            continue;
         }
         if (args[i] == "--stretch") {
             fijar_entorno("GBARECOMP_STRETCH", "1");
@@ -159,6 +202,19 @@ void entorno_por_defecto(const char* nombre, const char* valor) {
 
 int main(int argc, char** argv) {
     entorno_por_defecto("GBARECOMP_DIAGNOSTICS", "0");
+    // Imagen nítida con el escalado de Windows (125 %, 150 %...): el proceso se declara
+    // consciente del DPI por monitor (SDL lo lee al iniciar el vídeo). Sin esto Windows
+    // estira la ventana y difumina las líneas de 1 píxel de los filtros. Para volver al
+    // comportamiento anterior: variable de entorno SDL_WINDOWS_DPI_AWARENESS=unaware.
+    entorno_por_defecto("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");
+    // Ruta de config.ini, la misma que usa el menú de arranque (junto al ejecutable): los
+    // menús la leen y la escriben para recordar el idioma elegido ([Menu] Language).
+    {
+        const std::filesystem::path exe(argc > 0 && argv[0] ? argv[0] : "");
+        const std::filesystem::path ini =
+            exe.has_parent_path() ? exe.parent_path() / "config.ini" : std::filesystem::path("config.ini");
+        entorno_por_defecto("MTP_CONFIG_INI", ini.string().c_str());
+    }
 
     g_runtime_ram_dispatch_hook  = despacho_ram;
     g_runtime_force_interp_hook  = forzar_interprete;
@@ -171,8 +227,12 @@ int main(int argc, char** argv) {
     // Menú previo al arranque.
     opts.launcher_region      = "EUR";
     opts.launcher_game_config = "game.toml";
-    opts.launcher_expose_sharp_filter  = true;
+    // El selector «Filtro de imagen» (ver arriba) sustituye a la fila «Scaling filter».
+    opts.launcher_expose_sharp_filter  = false;
     opts.launcher_default_sharp_filter = false;
+    opts.launcher_filter_labels = kEtiquetasFiltro;
+    opts.launcher_filter_values = kValoresFiltro;
+    opts.launcher_num_filters   = kNumFiltros;
 
     // Pantalla: 3:2 nativo, 16:9 estirado y 16:9 con barras difuminadas (ver
     // arriba). Se ofrecen como un selector «aspect» en el menú de arranque.

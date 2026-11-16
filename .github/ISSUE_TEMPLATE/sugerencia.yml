@@ -1,0 +1,31 @@
+name: Sugerencia
+description: Una idea para mejorar el proyecto
+title: "[Sugerencia] "
+labels: ["mejora"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Cuéntame qué te gustaría y por qué. Ten en cuenta que el proyecto es personal y sin
+        ánimo de lucro, y que depende de gbarecomp (PolyForm Noncommercial).
+  - type: textarea
+    id: idea
+    attributes:
+      label: La idea
+    validations:
+      required: true
+  - type: textarea
+    id: motivo
+    attributes:
+      label: Qué problema resuelve o qué aporta
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: Alternativas que has pensado
+  - type: checkboxes
+    id: reglas
+    attributes:
+      label: Antes de enviar
+      options:
+        - label: No pido ni ofrezco la ROM, la BIOS de Nintendo ni recursos del juego.
+          required: true

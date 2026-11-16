@@ -1,0 +1,297 @@
+diff --git a/src/runtime/host_window.cpp b/src/runtime/host_window.cpp
+index 4ba48bf..892358d 100644
+--- a/src/runtime/host_window.cpp
++++ b/src/runtime/host_window.cpp
+@@ -102,6 +102,7 @@ enum HostHotkey {
+     HK_VOLUME_UP, HK_VOLUME_DOWN, HK_DISPLAY_PERF,
+     HK_SOLAR_BRIGHTER, HK_SOLAR_DIMMER, HK_SOLAR_LIVE,
+     HK_FILTER_NEXT, HK_FILTER_PREV,      // PARCHE mario-tennis: filtro de imagen en directo
++    HK_SCREENSHOT,                       // PARCHE mario-tennis: captura de pantalla
+     HK_COUNT
+ };
+ 
+@@ -1603,6 +1604,7 @@ const char* const kHotkeyNames[HK_COUNT] = {
+     "VolumeUp", "VolumeDown", "DisplayPerf",
+     "SolarBrighter", "SolarDimmer", "SolarLive",
+     "ImageFilterNext", "ImageFilterPrev",
++    "Screenshot",
+ };
+ const char* const kHotkeyDefaults[HK_COUNT] = {
+     "Alt+Return", "Shift+P", "Tab",
+@@ -1610,6 +1612,7 @@ const char* const kHotkeyDefaults[HK_COUNT] = {
+     "", "", "F",
+     "", "", "",
+     "F12", "Shift+F12",
++    "F10",
+ };
+ 
+ // SDL_GetScancodeFromName plus the same lowercase aliases recomp-ui's
+@@ -3280,6 +3283,20 @@ void HostWindow::set_image_filter(int filtro, bool anunciar) {
+     }
+ }
+ 
++const char* HostWindow::config_dir() const {
++    if (!open_ || !impl_) return "";
++    return static_cast<const Backend*>(impl_)->mtp_config_dir.c_str();
++}
++
++void HostWindow::announce(const char* texto) {
++    if (!open_ || !impl_ || !texto) return;
++    auto* b = static_cast<Backend*>(impl_);
++    const std::string completo = b->title + " - " + texto;
++    SDL_SetWindowTitle(b->window, completo.c_str());
++    b->mtp_aviso_hasta = SDL_GetTicks() + 3000u;
++    if (b->mtp_aviso_hasta == 0) b->mtp_aviso_hasta = 1;
++}
++
+ void HostWindow::cycle_image_filter(int delta) {
+     if (!open_ || !impl_) return;
+     const int total = mtp_filtros::kTotal;
+@@ -3721,6 +3738,7 @@ HostWindow::Events HostWindow::pump() {
+                         case HK_SOLAR_LIVE:     ev.solar_live = true;        break;
+                         case HK_FILTER_NEXT:    ev.filter_next = true;       break;
+                         case HK_FILTER_PREV:    ev.filter_prev = true;       break;
++                        case HK_SCREENSHOT:     ev.screenshot = true;        break;
+                     }
+                 }
+             }
+@@ -3919,6 +3937,8 @@ bool HostWindow::linear_filter() const { return false; }
+ int  HostWindow::image_filter() const { return 0; }
+ void HostWindow::set_image_filter(int /*filtro*/, bool /*anunciar*/) {}
+ void HostWindow::cycle_image_filter(int /*delta*/) {}
++const char* HostWindow::config_dir() const { return ""; }
++void HostWindow::announce(const char* /*texto*/) {}
+ void HostWindow::set_audio_enabled(bool /*enabled*/) {}
+ bool HostWindow::audio_enabled() const { return false; }
+ void HostWindow::set_resize_driven_view(bool /*enabled*/) {}
+diff --git a/src/runtime/host_window.h b/src/runtime/host_window.h
+index 615305a..2c79de7 100644
+--- a/src/runtime/host_window.h
++++ b/src/runtime/host_window.h
+@@ -103,6 +103,9 @@ public:
+     int  image_filter() const;
+     void set_image_filter(int filtro, bool anunciar);
+     void cycle_image_filter(int delta);
++    // PARCHE mario-tennis: carpeta de config.ini y aviso temporal en la barra de título.
++    const char* config_dir() const;
++    void announce(const char* texto);
+     void set_audio_enabled(bool enabled);
+     bool audio_enabled() const;
+     void set_resize_driven_view(bool enabled);
+@@ -221,6 +224,7 @@ public:
+         bool     toggle_fps = false;
+         bool     filter_next = false;   // PARCHE mario-tennis: siguiente filtro de imagen
+         bool     filter_prev = false;   // PARCHE mario-tennis: filtro de imagen anterior
++        bool     screenshot = false;    // PARCHE mario-tennis: guardar una captura (F10)
+         // Horizontal mouse velocity while the left button is held. The runtime
+         // maps this host-neutral delta onto cartridge gyroscope sample units.
+         int      gyro_delta_x = 0;
+diff --git a/src/runtime/runtime.cpp b/src/runtime/runtime.cpp
+index 065ad2c..7462a3d 100644
+--- a/src/runtime/runtime.cpp
++++ b/src/runtime/runtime.cpp
+@@ -594,6 +594,103 @@ bool write_bmp(const std::string& path, const uint8_t* rgb,
+     return static_cast<bool>(f);
+ }
+ 
++// PARCHE mario-tennis: DEFLATE con códigos de Huffman fijos y búsqueda LZ77 sencilla
++// (sin zlib). Las capturas, ampliadas con vecino más cercano, quedan en unos
++// cientos de KB en vez de varios MB.
++std::vector<uint8_t> mtp_deflate(const std::vector<uint8_t>& raw) {
++    std::vector<uint8_t> out;
++    out.reserve(raw.size() / 8 + 64);
++    uint32_t acc = 0;
++    int nbits = 0;
++    auto put = [&](uint32_t v, int bits) {          // bits de menos a más significativo
++        acc |= v << nbits;
++        nbits += bits;
++        while (nbits >= 8) {
++            out.push_back(static_cast<uint8_t>(acc & 0xFF));
++            acc >>= 8;
++            nbits -= 8;
++        }
++    };
++    auto put_huff = [&](uint32_t code, int bits) {   // los códigos Huffman van al revés
++        uint32_t r = 0;
++        for (int i = 0; i < bits; ++i) r |= ((code >> i) & 1u) << (bits - 1 - i);
++        put(r, bits);
++    };
++    auto put_sym = [&](int s) {                      // alfabeto fijo de literales y longitudes
++        if (s < 144)      put_huff(0x30u + s, 8);
++        else if (s < 256) put_huff(0x190u + (s - 144), 9);
++        else if (s < 280) put_huff(static_cast<uint32_t>(s - 256), 7);
++        else              put_huff(0xC0u + (s - 280), 8);
++    };
++    static const int kLenBase[29] = {3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,
++                                     59,67,83,99,115,131,163,195,227,258};
++    static const int kLenExtra[29] = {0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0};
++    static const int kDistBase[30] = {1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,
++                                      513,769,1025,1537,2049,3073,4097,6145,8193,12289,
++                                      16385,24577};
++    static const int kDistExtra[30] = {0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,
++                                       11,11,12,12,13,13};
++
++    put(1, 1);   // último bloque
++    put(1, 2);   // tipo 01: Huffman fijo
++    const std::size_t n = raw.size();
++    constexpr int kHashBits = 15;
++    constexpr std::size_t kVentana = 32768;
++    std::vector<int32_t> cabeza(static_cast<std::size_t>(1) << kHashBits, -1);
++    std::vector<int32_t> previo(n, -1);
++    auto hash3 = [&](std::size_t i) {
++        return ((static_cast<uint32_t>(raw[i]) << 10) ^
++                (static_cast<uint32_t>(raw[i + 1]) << 5) ^ raw[i + 2]) &
++               ((1u << kHashBits) - 1u);
++    };
++    std::size_t i = 0;
++    while (i < n) {
++        int mejor_len = 0;
++        int mejor_dist = 0;
++        if (i + 3 <= n) {
++            const uint32_t h = hash3(i);
++            int32_t cand = cabeza[h];
++            int cadena = 48;
++            const std::size_t limite = std::min<std::size_t>(258, n - i);
++            while (cand >= 0 && cadena-- > 0 &&
++                   i - static_cast<std::size_t>(cand) <= kVentana) {
++                std::size_t l = 0;
++                while (l < limite && raw[cand + l] == raw[i + l]) ++l;
++                if (static_cast<int>(l) > mejor_len) {
++                    mejor_len = static_cast<int>(l);
++                    mejor_dist = static_cast<int>(i - static_cast<std::size_t>(cand));
++                    if (l == limite) break;
++                }
++                cand = previo[static_cast<std::size_t>(cand)];
++            }
++        }
++        std::size_t avance = 1;
++        if (mejor_len >= 3) {
++            int lc = 28;
++            while (kLenBase[lc] > mejor_len) --lc;
++            put_sym(257 + lc);
++            if (kLenExtra[lc]) put(static_cast<uint32_t>(mejor_len - kLenBase[lc]), kLenExtra[lc]);
++            int dc = 29;
++            while (kDistBase[dc] > mejor_dist) --dc;
++            put_huff(static_cast<uint32_t>(dc), 5);
++            if (kDistExtra[dc]) put(static_cast<uint32_t>(mejor_dist - kDistBase[dc]), kDistExtra[dc]);
++            avance = static_cast<std::size_t>(mejor_len);
++        } else {
++            put_sym(raw[i]);
++        }
++        for (std::size_t k = 0; k < avance; ++k, ++i) {
++            if (i + 3 <= n) {
++                const uint32_t h = hash3(i);
++                previo[i] = cabeza[h];
++                cabeza[h] = static_cast<int32_t>(i);
++            }
++        }
++    }
++    put_sym(256);          // fin de bloque
++    if (nbits > 0) put(0, 8 - nbits);
++    return out;
++}
++
+ // Minimal, dependency-free PNG writer (8-bit RGB). Uses stored/uncompressed
+ // DEFLATE blocks so we need no zlib — just a local CRC-32 (PNG/zlib IEEE
+ // poly) and Adler-32. Mirrors the spirit of write_bmp; preferred output for
+@@ -655,21 +752,12 @@ bool write_png(const std::string& path, const uint8_t* rgb,
+                    rgb + static_cast<std::size_t>(y + 1) * w * 3);
+     }
+ 
+-    // zlib stream: 2-byte header + stored DEFLATE blocks + Adler-32 of raw.
++    // zlib stream: 2-byte header + DEFLATE (PARCHE mario-tennis: comprimido) + Adler-32 of raw.
+     std::vector<uint8_t> zlib;
+     zlib.push_back(0x78); zlib.push_back(0x01);
+-    std::size_t off = 0;
+-    while (off < raw.size() || raw.empty()) {
+-        std::size_t n = std::min<std::size_t>(raw.size() - off, 65535);
+-        bool final = (off + n >= raw.size());
+-        zlib.push_back(final ? 1 : 0);
+-        zlib.push_back(static_cast<uint8_t>(n & 0xFF));
+-        zlib.push_back(static_cast<uint8_t>((n >> 8) & 0xFF));
+-        zlib.push_back(static_cast<uint8_t>(~n & 0xFF));
+-        zlib.push_back(static_cast<uint8_t>((~n >> 8) & 0xFF));
+-        zlib.insert(zlib.end(), raw.begin() + off, raw.begin() + off + n);
+-        off += n;
+-        if (final) break;
++    {
++        const std::vector<uint8_t> comprimido = mtp_deflate(raw);
++        zlib.insert(zlib.end(), comprimido.begin(), comprimido.end());
+     }
+     uint32_t a1 = 1, a2 = 0;
+     for (uint8_t b : raw) { a1 = (a1 + b) % 65521; a2 = (a2 + a1) % 65521; }
+@@ -688,6 +776,47 @@ bool write_png(const std::string& path, const uint8_t* rgb,
+     return static_cast<bool>(f);
+ }
+ 
++// PARCHE mario-tennis: captura de pantalla (tecla Screenshot, F10 por defecto). Guarda
++// la imagen del juego, sin filtros ni marcos y ampliada con vecino más cercano, como PNG
++// en «capturas» junto a config.ini. Se hace en el siguiente fotograma que se dibuje.
++bool g_mtp_captura_pendiente = false;
++
++void mtp_captura_si_toca(HostWindow& win, const uint8_t* rgb, uint32_t w, uint32_t h) {
++    if (!g_mtp_captura_pendiente) return;
++    g_mtp_captura_pendiente = false;
++    if (!rgb || w == 0 || h == 0) return;
++    std::error_code ec;
++    const char* base = win.config_dir();
++    std::filesystem::path dir = std::filesystem::path(base && *base ? base : ".") / "capturas";
++    std::filesystem::create_directories(dir, ec);
++    char marca[64];
++    const std::time_t ahora = std::time(nullptr);
++    std::strftime(marca, sizeof(marca), "%Y-%m-%d_%H-%M-%S", std::localtime(&ahora));
++    std::filesystem::path ruta = dir / (std::string("MarioTennis_") + marca + ".png");
++    for (int n = 2; std::filesystem::exists(ruta, ec) && n < 1000; ++n)
++        ruta = dir / (std::string("MarioTennis_") + marca + "_" + std::to_string(n) + ".png");
++    // Entero para llegar a unos 720 px de alto como mínimo (240x160 -> x5 = 1200x800).
++    const uint32_t k = std::max<uint32_t>(1, (720 + h - 1) / h);
++    std::vector<uint8_t> grande(static_cast<std::size_t>(w) * k * h * k * 3);
++    for (uint32_t y = 0; y < h * k; ++y) {
++        const uint8_t* fila = rgb + static_cast<std::size_t>(y / k) * w * 3;
++        uint8_t* dst = grande.data() + static_cast<std::size_t>(y) * w * k * 3;
++        for (uint32_t x = 0; x < w * k; ++x) {
++            const uint8_t* px = fila + static_cast<std::size_t>(x / k) * 3;
++            dst[x * 3 + 0] = px[0];
++            dst[x * 3 + 1] = px[1];
++            dst[x * 3 + 2] = px[2];
++        }
++    }
++    if (write_png(ruta.string(), grande.data(), w * k, h * k)) {
++        std::fprintf(stderr, "captura guardada: %s\n", ruta.string().c_str());
++        win.announce("captura guardada en la carpeta capturas");
++    } else {
++        std::fprintf(stderr, "captura: no se pudo escribir %s\n", ruta.string().c_str());
++        win.announce("no se pudo guardar la captura");
++    }
++}
++
+ bool write_file(const std::string& path, const std::vector<uint8_t>& bytes,
+                 std::string* err) {
+     std::filesystem::path p(path);
+@@ -3821,6 +3950,7 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+         if (ev.toggle_fps)  win.set_fps_readout(!win.fps_readout());
+         if (ev.filter_next) win.cycle_image_filter(+1);   // PARCHE mario-tennis
+         if (ev.filter_prev) win.cycle_image_filter(-1);
++        if (ev.screenshot)  g_mtp_captura_pendiente = true;
+         if (ev.toggle_pause) {
+             host_paused = !host_paused;
+             // Realign the pacer on unpause so it doesn't burn the
+@@ -4036,6 +4166,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+             // Keep the native window (and any runtime UI drawn over the
+             // game renderer) alive while the guest is held still.
+             win.present(live_fb.data());
++            mtp_captura_si_toca(win, live_fb.data(), ppu.render_width(),   // PARCHE mario-tennis
++                                ppu.render_height());
+             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+ #endif
+         }
+@@ -4743,6 +4875,9 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+                 }
+                 if (phase_active) fp_t1 = FramePhaseRing::now_ns();
+                 if (present_frame) win.present(live_fb.data());
++                if (present_frame)   // PARCHE mario-tennis: captura de pantalla (F10)
++                    mtp_captura_si_toca(win, live_fb.data(), ppu.render_width(),
++                                        ppu.render_height());
+                 // Framedump (capture runs only) is attributed to present_us.
+                 if (framedump_dir && frame >= framedump_start &&
+                     framedump_written < framedump_max) {

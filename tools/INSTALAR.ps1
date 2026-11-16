@@ -270,13 +270,74 @@ function Resolver-Destino([string]$ruta) {
     return @{ Ok = $true; Mensaje = $msg; Ruta = $ruta }
 }
 
-function Obtener-DirObra {
+# Gigas libres que hacen falta para compilar, según el método.
+function Espacio-Necesario {
+    if ($Metodo -eq 'msys2') {
+        if (Test-Path -LiteralPath (Join-Path $Msys2 'usr\bin\bash.exe')) { return $EspacioMsys2ConGB }
+        return $EspacioMsys2SinGB
+    }
+    return $EspacioLigeroGB
+}
+
+# Raíz de la unidad de una ruta (C:\, D:\...).
+function Raiz-De([string]$ruta) {
+    try { return [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($ruta)) } catch { return '' }
+}
+
+# Discos fijos listos, con su espacio libre: @{ Raiz = 'D:\'; Libre = <bytes> }.
+function Unidades-Fijas {
+    $r = New-Object System.Collections.ArrayList
+    try {
+        foreach ($d in [System.IO.DriveInfo]::GetDrives()) {
+            if ($d.DriveType -eq 'Fixed' -and $d.IsReady) {
+                [void]$r.Add(@{ Raiz = $d.RootDirectory.FullName; Libre = [long]$d.AvailableFreeSpace })
+            }
+        }
+    } catch { }
+    return ,$r.ToArray()
+}
+
+# Carpeta temporal de compilación. Por defecto va en el perfil del usuario (normalmente en C:), pero si
+# esa unidad va justa de espacio (C: casi llena y el juego instalado en D:, por ejemplo) se usa otra
+# unidad con sitio: primero la del juego y luego el resto de discos fijos, de más a menos espacio libre.
+# La ruta tiene que ser corta y sin acentos ni espacios (gcc, Zig y CMake los llevan mal), así que fuera
+# del perfil siempre es «<unidad>\MTP-obra». Si ya hay una carpeta conservada de una instalación anterior
+# (con lo compilado) se reutiliza: actualizar así es mucho más rápido y casi no hace falta espacio.
+function Obtener-DirObra([string]$destino, $anterior, $unidades) {
+    if ($anterior -and $anterior.obra) {
+        $previa = [string]$anterior.obra
+        if (Test-Path -LiteralPath (Join-Path $previa 'build')) { return $previa }
+    }
+    $necesario = [long]((Espacio-Necesario) * 1GB)
     $base = [Environment]::GetFolderPath('LocalApplicationData')
     $dir = Join-Path (Join-Path $base 'MarioTennisPowerTour') 'obra'
-    # gcc, Zig y CMake llevan mal las rutas con acentos, espacios o demasiado largas: en ese caso se usa C:\MTP-obra.
-    if ($dir -match '^[\x21-\x7E]+$' -and $dir.Length -le $LongitudMaxObra) { return $dir }
-    $unidad = if ($env:SystemDrive) { $env:SystemDrive } else { 'C:' }
-    return "$unidad\MTP-obra"
+    $valida = ($dir -match '^[\x21-\x7E]+$' -and $dir.Length -le $LongitudMaxObra)
+    if ($valida -and (Espacio-Libre $dir) -ge $necesario) { return $dir }
+
+    if ($null -eq $unidades) { $unidades = Unidades-Fijas }
+    $raizSistema = if ($env:SystemDrive) { "$($env:SystemDrive)\" } else { 'C:\' }
+    $raizJuego = Raiz-De $destino
+    $orden = New-Object System.Collections.ArrayList
+    if (-not $valida) { [void]$orden.Add($raizSistema) }          # como antes: perfil con acentos -> C:\MTP-obra
+    if ($raizJuego) { [void]$orden.Add($raizJuego) }
+    foreach ($u in @($unidades | Sort-Object { $_.Libre } -Descending)) { [void]$orden.Add($u.Raiz) }
+    $vistas = @{}
+    foreach ($raiz in $orden) {
+        $clave = ([string]$raiz).ToUpper()
+        if ($vistas.ContainsKey($clave)) { continue }
+        $vistas[$clave] = $true
+        $libre = $null
+        foreach ($u in @($unidades)) { if (([string]$u.Raiz).ToUpper() -eq $clave) { $libre = [long]$u.Libre } }
+        if ($null -eq $libre) { $libre = Espacio-Libre $raiz }
+        if ($libre -ge $necesario) {
+            $nueva = ([string]$raiz).TrimEnd('\', '/') + [string][System.IO.Path]::DirectorySeparatorChar + 'MTP-obra'
+            Escribir-Aviso ("La unidad de los archivos temporales por defecto va justa de espacio: uso {0} ({1} libres) para compilar. Al terminar se borra." -f $nueva, (Formatear-Tamano $libre))
+            return $nueva
+        }
+    }
+    # Ninguna unidad tiene sitio: se devuelve la de siempre y Comprobar-Espacio explicará qué falta.
+    if ($valida) { return $dir }
+    return ($raizSistema.TrimEnd('\', '/') + [string][System.IO.Path]::DirectorySeparatorChar + 'MTP-obra')
 }
 
 # ── Ventana de elección ───────────────────────────────────────────────────
@@ -334,7 +395,7 @@ function Mostrar-Ventana([string]$romInicial, [string]$destinoInicial) {
     $aviso = Nuevo System.Windows.Forms.Label @{
         Location = (Pt 22 416); Size = (Tam 596 62)
         Text = ("Se descargan unas herramientas de compilación ligeras (unos 150 MB, con internet) y se compila el juego a partir de tu ROM: " +
-                "tarda de 20 a 60 minutos. Durante la instalación hacen falta unos 1,5 GB libres; al terminar se borra lo temporal y el juego " +
+                "tarda de 20 a 60 minutos. Durante la instalación hacen falta unos 1,5 GB libres (en C: o, si va justa, en la unidad del juego); al terminar se borra lo temporal y el juego " +
                 "ocupa unos 60 MB. La ROM no sale de tu equipo.") }
 
     $bInstalar = Nuevo System.Windows.Forms.Button @{ Text = 'Instalar'; Location = (Pt 424 480); Size = (Tam 96 30) }
@@ -471,7 +532,7 @@ function Comprobar-Requisitos([string]$dirObra, [double]$espacioGB) {
 function Comprobar-Espacio([string]$dirObra, [double]$espacioGB) {
     $libre = Espacio-Libre $dirObra
     if ($libre -lt ($espacioGB * 1GB)) {
-        Fallo ("No hay espacio suficiente para compilar: hacen falta unos {0:N1} GB libres en la unidad de «{1}» y hay {2}." -f $espacioGB, $dirObra, (Formatear-Tamano $libre))
+        Fallo ("No hay espacio suficiente para compilar: hacen falta unos {0:N1} GB libres en la unidad de «{1}» y hay {2}. Libera espacio en alguna unidad (el juego terminado ocupa unos 60 MB) y vuelve a intentarlo." -f $espacioGB, $dirObra, (Formatear-Tamano $libre))
     }
 }
 
@@ -667,12 +728,12 @@ function Compilar-Msys2([string]$dirObra, [string]$rom) {
 function Instalar-Juego($eleccion) {
     $rom = $eleccion.Rom
     $destino = $eleccion.Destino
-    $dirObra = Obtener-DirObra
+    $anterior = Leer-Manifiesto $destino
+    $dirObra = Obtener-DirObra $destino $anterior $null
     $conservar = ([bool]$eleccion.ConservarObra) -or [bool]$ConservarObra
     $log = ''
     $carpetaJuego = ''
     $metodoUsado = ''
-    $anterior = Leer-Manifiesto $destino
 
     if ($PruebaSeca) {
         Escribir-Paso 'Prueba en seco: se salta la descarga de herramientas y la compilación'
@@ -725,12 +786,19 @@ function Instalar-Juego($eleccion) {
 
     Escribir-Paso "4/4 Instalando en $destino"
     # Se conservan las partidas y los ajustes de una instalación anterior.
-    Copiar-Carpeta $carpetaJuego $destino @('recomp_cache') @('rom.cfg', 'bios.cfg', 'config.ini', 'keybinds.ini', '*.sav', 'recomp_master_misses_*', 'recomp_coverage_*')
+    Copiar-Carpeta $carpetaJuego $destino @('recomp_cache', 'capturas') @('rom.cfg', 'bios.cfg', 'config.ini', 'keybinds.ini', '*.sav', 'recomp_master_misses_*', 'recomp_coverage_*')
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'DESINSTALAR.ps1') -Destination (Join-Path $destino 'Desinstalar.ps1') -Force
     Set-Content -LiteralPath (Join-Path $destino 'Desinstalar.bat') -Encoding ASCII -Value @(
         '@echo off',
         'rem Desinstala Mario Tennis: Power Tour.',
         'powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Desinstalar.ps1" %*')
+    # Importar y exportar partidas de emuladores (y copias de seguridad).
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PARTIDAS.ps1') -Destination (Join-Path $destino 'Partidas.ps1') -Force
+    Set-Content -LiteralPath (Join-Path $destino 'Partidas.bat') -Encoding ASCII -Value @(
+        '@echo off',
+        'rem Importa y exporta partidas de emuladores (.sav) y guarda copias de seguridad.',
+        'powershell.exe -NoProfile -ExecutionPolicy Bypass -STA -File "%~dp0Partidas.ps1" %*',
+        'if errorlevel 1 pause')
     if (-not $log -or -not (Test-Path -LiteralPath $log)) {
         $log = Join-Path ([System.IO.Path]::GetTempPath()) 'mario-tennis-instalador.log'
     }
@@ -775,6 +843,21 @@ function Instalar-Juego($eleccion) {
             Escribir-Ok 'Accesos directos creados.'
         } catch {
             Escribir-Aviso "No pude crear algún acceso directo ($($_.Exception.Message)). El juego está instalado igualmente."
+        }
+    }
+    # Acceso a «Partidas» en el menú Inicio: también al actualizar una instalación anterior que no lo tenía.
+    if ($EsWindows -and -not $SinAccesos -and -not $PruebaSeca) {
+        try {
+            $carpetaInicio = Join-Path ([Environment]::GetFolderPath('Programs')) $NombreJuego
+            $hayInicio = @($accesos | Where-Object { $_ -and ((Split-Path -Parent $_) -ieq $carpetaInicio) }).Count -gt 0
+            if ($hayInicio) {
+                $ruta3 = Join-Path $carpetaInicio "Partidas de $NombreJuego.lnk"
+                $argPar = "-NoProfile -ExecutionPolicy Bypass -STA -File `"$(Join-Path $destino 'Partidas.ps1')`""
+                Crear-Acceso $ruta3 $powershell $argPar $destino $iconoAccesos 'Importar y exportar partidas de emuladores; copias de seguridad'
+                if ($accesos -notcontains $ruta3) { $accesos += $ruta3 }
+            }
+        } catch {
+            Escribir-Aviso "No pude crear el acceso a Partidas ($($_.Exception.Message)); sigue disponible en Partidas.bat dentro de la carpeta del juego."
         }
     }
     # Al actualizar los accesos no se recrean, pero sí se les pone el icono si hay uno.

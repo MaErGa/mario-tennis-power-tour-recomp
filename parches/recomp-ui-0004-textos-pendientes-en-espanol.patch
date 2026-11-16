@@ -1,0 +1,856 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index af407d9..3a48159 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -94,6 +94,27 @@ static const char* ui_text(const char* en) {
+     return launcher_i18n_text(en);
+ }
+ 
++// PARCHE mario-tennis: enseña el atajo en español («Alt+Intro», «Mayús+P»). Solo es el
++// texto que se dibuja: lo que se guarda en config.ini sigue siendo «Alt+Return», «Shift+P».
++static const char* etiqueta_atajo(const char* atajo) {
++    static char buf[64];
++    if (!atajo || !atajo[0]) return ui_text("(unbound)");
++    buf[0] = 0;
++    for (;;) {
++        const char* mod = nullptr;
++        size_t largo = 0;
++        if (!strncmp(atajo, "Ctrl+", 5))       { mod = "Ctrl";  largo = 5; }
++        else if (!strncmp(atajo, "Alt+", 4))   { mod = "Alt";   largo = 4; }
++        else if (!strncmp(atajo, "Shift+", 6)) { mod = "Shift"; largo = 6; }
++        if (!mod) break;
++        std::snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "%s+", ui_text(mod));
++        atajo += largo;
++    }
++    std::snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "%s", ui_text(atajo));
++    return buf;
++}
++
++
+ struct ShaderPresetEntry {
+     std::string label;
+     std::string path;
+@@ -740,12 +761,12 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
+                                              const LauncherTheme& th,
+                                              bool standalone_popup) {
+     namespace fs = std::filesystem;
+-    ImGui::TextColored(col(th.accent), "%s", g_picker.title);
++    ImGui::TextColored(col(th.accent), "%s", ui_text(g_picker.title));
+     ImGui::TextColored(col(th.text_muted),
+-                       "Built-in browser (no desktop file-picker service required)");
++                       ui_text("Built-in browser (no desktop file-picker service required)"));
+     if (!g_picker.description.empty())
+-        ImGui::TextColored(col(th.text_muted), "Showing: %s",
+-                           g_picker.description.c_str());
++        ImGui::TextColored(col(th.text_muted), ui_text("Showing: %s"),
++                           ui_text(g_picker.description.c_str()));
+     ImGui::Dummy(ImVec2(0, px(6)));
+ 
+     ImGui::AlignTextToFramePadding();
+@@ -759,13 +780,13 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
+     if (enter_dir) {
+         std::error_code ec;
+         if (!fs::is_directory(fs::path(g_picker.directory), ec))
+-            std::snprintf(g_picker.error, sizeof(g_picker.error),
+-                          "That folder does not exist or cannot be opened.");
++            std::snprintf(g_picker.error, sizeof(g_picker.error), "%s",
++                          ui_text("That folder does not exist or cannot be opened."));
+         else
+             g_picker.error[0] = '\0';
+     }
+ 
+-    if (ImGui::Button("Up", ImVec2(px(82), px(30)))) {
++    if (ImGui::Button(ui_text("Up##carpeta"), ImVec2(px(82), px(30)))) {
+         fs::path parent = fs::path(g_picker.directory).parent_path();
+         if (!parent.empty()) {
+             std::snprintf(g_picker.directory, sizeof(g_picker.directory),
+@@ -775,7 +796,7 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
+         }
+     }
+     ImGui::SameLine();
+-    if (ImGui::Button("Home", ImVec2(px(82), px(30)))) {
++    if (ImGui::Button(ui_text("Home"), ImVec2(px(82), px(30)))) {
+         if (const char* home = std::getenv("HOME")) {
+             std::snprintf(g_picker.directory, sizeof(g_picker.directory),
+                           "%s", home);
+@@ -811,8 +832,8 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
+                              lower_ascii(b.path.filename().string());
+                   });
+     } else if (!g_picker.error[0]) {
+-        std::snprintf(g_picker.error, sizeof(g_picker.error),
+-                      "Unable to open this folder.");
++        std::snprintf(g_picker.error, sizeof(g_picker.error), "%s",
++                      ui_text("Unable to open this folder."));
+     }
+ 
+     ImGui::BeginChild("##builtin_picker_entries", ImVec2(0, px(300)),
+@@ -845,8 +866,8 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
+      * is the answer. */
+     if (g_picker.mode != PickMode::Folder) {
+         ImGui::AlignTextToFramePadding();
+-        ImGui::TextUnformatted(g_picker.mode == PickMode::SaveFile ? "Save as"
+-                                                                  : "File");
++        ImGui::TextUnformatted(g_picker.mode == PickMode::SaveFile ? ui_text("Save as")
++                                                                  : ui_text("File"));
+         ImGui::SameLine();
+         ImGui::SetNextItemWidth(-1);
+         if (g_picker.focus_path) {
+@@ -862,10 +883,10 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
+ 
+     ImGui::Dummy(ImVec2(0, px(6)));
+ 
+-    const char* confirm_label = g_picker.mode == PickMode::Folder ? "Use this folder"
++    const char* confirm_label = g_picker.mode == PickMode::Folder ? ui_text("Use this folder")
+                                 : g_picker.mode == PickMode::SaveFile
+-                                      ? (g_picker.overwrite_armed ? "Overwrite" : "Save here")
+-                                      : "Use selected file";
++                                      ? (g_picker.overwrite_armed ? ui_text("Overwrite") : ui_text("Save here"))
++                                      : ui_text("Use selected file");
+ 
+     if (ImGui::Button(confirm_label, ImVec2(px(180), px(34)))) {
+         std::error_code file_ec;
+@@ -878,14 +899,14 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
+                 return;
+             }
+             std::snprintf(g_picker.error, sizeof(g_picker.error), "%s",
+-                          "Open an existing folder first.");
++                          ui_text("Open an existing folder first."));
+         } else if (g_picker.mode == PickMode::SaveFile) {
+             /* A save destination need NOT exist yet -- that is the whole point
+              * of the mode. What must exist is the folder it lands in. */
+             fs::path target(g_picker.selected);
+             if (target.empty() || !target.has_filename()) {
+                 std::snprintf(g_picker.error, sizeof(g_picker.error), "%s",
+-                              "Type a file name to save as.");
++                              ui_text("Type a file name to save as."));
+             } else {
+                 if (target.is_relative())
+                     target = fs::path(g_picker.directory) / target;
+@@ -893,13 +914,13 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
+                 if (parent.empty()) parent = fs::path(g_picker.directory);
+                 if (!fs::is_directory(parent, file_ec)) {
+                     std::snprintf(g_picker.error, sizeof(g_picker.error), "%s",
+-                                  "That folder does not exist.");
++                                  ui_text("That folder does not exist."));
+                 } else if (fs::exists(target, file_ec) &&
+                            !g_picker.overwrite_armed) {
+                     g_picker.overwrite_armed = true;
+                     std::snprintf(g_picker.error, sizeof(g_picker.error), "%s",
+-                                  "That file already exists. Press Overwrite "
+-                                  "to replace it.");
++                                  ui_text("That file already exists. Press Overwrite "
++                                          "to replace it."));
+                 } else {
+                     const std::string out = target.string();
+                     if (standalone_popup) ImGui::CloseCurrentPopup();
+@@ -918,11 +939,11 @@ static void draw_builtin_rom_picker_contents(LauncherModel* m,
+             }
+             if (g_picker.description.empty())
+                 std::snprintf(g_picker.error, sizeof(g_picker.error), "%s",
+-                              "Select an existing file of the right type.");
++                              ui_text("Select an existing file of the right type."));
+             else
+                 std::snprintf(g_picker.error, sizeof(g_picker.error),
+-                              "Select an existing file matching: %s",
+-                              g_picker.description.c_str());
++                              ui_text("Select an existing file matching: %s"),
++                              ui_text(g_picker.description.c_str()));
+         }
+     }
+     ImGui::SameLine();
+@@ -2321,12 +2342,12 @@ void draw_game_panel(LauncherModel* m, const LauncherTheme& th, bool fill_h = fa
+     if (builtin_file_picker_should_be_offered()) {
+         ImGui::TextColored(col(th.text_muted), "%s",
+                            g_native_picker_failed
+-                               ? "The desktop file picker could not run."
+-                               : "No desktop file picker (zenity/kdialog) found.");
++                               ? ui_text("The desktop file picker could not run.")
++                               : ui_text("No desktop file picker (zenity/kdialog) found."));
+         char builtin_label[64];
+         snprintf(builtin_label, sizeof(builtin_label), "%s %s",
+                  ui_text("Browse For"), ui_text(noun));
+-        std::strncat(builtin_label, " (built-in)",
++        std::strncat(builtin_label, ui_text(" (built-in)"),
+                      sizeof(builtin_label) - std::strlen(builtin_label) - 1);
+         if (ImGui::Button(builtin_label, ImVec2(availw, px(28)))) {
+             const SystemProfile* prof = (const SystemProfile*)m->profile;
+@@ -2445,7 +2466,7 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
+         if (!s_pw_editing) {
+             ImGui::AlignTextToFramePadding();
+             if (m->password_text[0]) ImGui::TextUnformatted(m->password_text);
+-            else ImGui::TextColored(col(th.text_muted), "(Not set)");
++            else ImGui::TextColored(col(th.text_muted), ui_text("(Not set)"));
+             ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - bw);
+             if (ImGui::Button(ui_text("Edit"), ImVec2(bw, px(30)))) {
+                 snprintf(s_pw_buf, sizeof(s_pw_buf), "%s", m->password_text);
+@@ -2476,7 +2497,7 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
+     // the filename unconditionally made a present and an absent save look
+     // identical — so Clear (which correctly no-ops when there's nothing to
+     // delete) read as "broken". Stat the file each frame: show its size when it
+-    // exists, "no save yet" when it doesn't, and disable Clear when empty so the
++    // exists, ui_text("no save yet") when it doesn't, and disable Clear when empty so the
+     // button's effect is always visible.
+     long sz = -1;
+     if (sp[0]) { FILE* f = fopen(sp, "rb"); if (f) { fseek(f, 0, SEEK_END); sz = ftell(f); fclose(f); } }
+@@ -2508,7 +2529,7 @@ void draw_save_row(LauncherModel* m, const LauncherTheme& th) {
+         }
+         ImGui::TextUnformatted(shown);
+     } else {
+-        ImGui::TextColored(col(th.text_muted), "no save yet");
++        ImGui::TextColored(col(th.text_muted), ui_text("no save yet"));
+     }
+     ImGui::SameLine(ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - bw*2 - px(th.spacing_sm));
+     static const char* kSramPatterns[] = { "*.srm", "*.sav" };
+@@ -4992,7 +5013,7 @@ void draw_hotkeys_controls(LauncherModel* m, const LauncherTheme& th) {
+             ImGui::SameLine(0.0f, label_w - ImGui::CalcTextSize(hkname).x);
+             const bool cap = m->hk_capturing && m->capture_hk == (LngHotkey)h;
+             const char* lbl = cap ? ui_text("[ press... ]")
+-                            : m->hotkeys[h][0] ? m->hotkeys[h] : ui_text("(unbound)");
++                            : etiqueta_atajo(m->hotkeys[h]);
+             if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
+             if (ImGui::Button(lbl, ImVec2(px(130), 0)))
+                 launcher_model_begin_hk_capture(m, (LngHotkey)h);
+@@ -5015,7 +5036,7 @@ void panel_hotkeys_draw(LauncherModel* m, const LauncherTheme* th) {
+ // registry's available() gate.
+ void draw_settings(LauncherModel* m, const LauncherTheme& th) {
+     if (m->settings_saved_on_exit) {
+-        ImGui::TextDisabled("Changes are saved when you press Play or close the launcher.");
++        ImGui::TextDisabled(ui_text("Changes are saved when you press Play or close the launcher."));
+         ImGui::Spacing();
+     }
+     // Row 1: DISPLAY | AUDIO share the top band. For the legacy minimal
+@@ -5167,9 +5188,9 @@ static bool enabled_camera_controls(const LauncherModel* m) {
+ }
+ 
+ const char* settings_key_label(int scancode) {
+-    if (scancode <= 0) return "(unbound)";
++    if (scancode <= 0) return ui_text("(unbound)");
+     const char* name = SDL_GetScancodeName((SDL_Scancode)scancode);
+-    return (name && name[0]) ? name : "(unbound)";
++    return (name && name[0]) ? ui_text(name) : ui_text("(unbound)");   // PARCHE mario-tennis: nombres en español
+ }
+ 
+ static const char* settings_pad_button_label(int code) {
+@@ -5307,7 +5328,7 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
+     if (m->assist_binding_count <= 0 || !m->assist_binding_labels)
+         return;
+     ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
+-    ImGui::TextUnformatted(m->has_assist_tools ? "ASSIST CONTROLS" : "HOST SHORTCUTS");
++    ImGui::TextUnformatted(m->has_assist_tools ? ui_text("ASSIST CONTROLS") : ui_text("HOST SHORTCUTS"));
+     ImGui::PopStyleColor();
+     ImGui::TextColored(
+         col(th.text_muted),
+@@ -5343,7 +5364,7 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
+              * warning over the Fast-forward toggle row. Scope each column. */
+             ImGui::PushID("key");
+             if (ImGui::Button(
+-                    capture_key ? "[ press a key... ]" :
++                    capture_key ? ui_text("[ press a key... ]") :
+                         settings_key_label(m->s.assist_key_bind[action]),
+                     ImVec2(px(170), 0)))
+                 launcher_model_begin_assist_capture(m, action, false);
+@@ -5356,7 +5377,7 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
+                 assist_pad_label(m, m->s.assist_pad_bind[action], pad, sizeof pad);
+                 ImGui::PushID("pad");
+                 if (ImGui::Button(
+-                        capture_pad ? "[ press a button... ]" : pad,
++                        capture_pad ? ui_text("[ press a button... ]") : pad,
+                         ImVec2(px(170), 0)))
+                     launcher_model_begin_assist_capture(m, action, true);
+                 ImGui::PopID();
+@@ -5368,17 +5389,17 @@ void draw_assist_binding_editor(LauncherModel* m, const LauncherTheme& th,
+     if (pad_col) draw_assist_pad_chord_hint(m, th);
+     else         draw_assist_pad_unavailable_hint(m, th);
+     if (show_reset && ImGui::Button(m->has_assist_tools
+-                                        ? "Reset Assist Controls"
+-                                        : "Reset Host Shortcuts"))
++                                        ? ui_text("Reset Assist Controls")
++                                        : ui_text("Reset Host Shortcuts")))
+         launcher_model_reset_assist_bindings(m);
+     if (m->capturing && m->capture_assist)
+-        ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
++        ImGui::TextColored(col(th.warn), ui_text("Listening... (Esc cancels, Backspace unbinds)"));
+ }
+ 
+ void draw_controller_assist_shortcuts(LauncherModel* m,
+                                       const LauncherTheme& th) {
+     ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
+-    ImGui::TextUnformatted(m->has_assist_tools ? "ASSIST SHORTCUTS" : "HOST SHORTCUTS");
++    ImGui::TextUnformatted(m->has_assist_tools ? ui_text("ASSIST SHORTCUTS") : ui_text("HOST SHORTCUTS"));
+     ImGui::PopStyleColor();
+     ImGui::SameLine();
+     ImGui::TextColored(col(th.text_muted),
+@@ -5421,7 +5442,7 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
+                 char pad[112];
+                 assist_pad_label(m, m->s.assist_pad_bind[action], pad, sizeof pad);
+                 ImGui::PushID("pad");
+-                if (ImGui::Button(capture_pad ? "[ button... ]" : pad,
++                if (ImGui::Button(capture_pad ? ui_text("[ button... ]") : pad,
+                                   ImVec2(-FLT_MIN, 0)))
+                     launcher_model_begin_assist_capture(m, action, true);
+                 ImGui::PopID();
+@@ -5433,7 +5454,7 @@ void draw_controller_assist_shortcuts(LauncherModel* m,
+     if (pad_col) draw_assist_pad_chord_hint(m, th);
+     else         draw_assist_pad_unavailable_hint(m, th);
+     if (m->capturing && m->capture_assist)
+-        ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
++        ImGui::TextColored(col(th.warn), ui_text("Listening... (Esc cancels, Backspace unbinds)"));
+ }
+ 
+ void draw_assist_tools(LauncherModel* m, const LauncherTheme& th) {
+@@ -5505,8 +5526,20 @@ void draw_credits(LauncherModel* m, const LauncherTheme& th) {
+  * the chip landed short of the reserved label column and the longest labels
+  * ("D-Pad Right", "L-Stick Down") were drawn underneath it. Spacing off the
+  * label just drawn is measured from the right place by construction. */
++// PARCHE mario-tennis: solo las cuatro direcciones se traducen. El resto de botones
++// (A, B, L, R, Start, Select) se queda con el nombre de la consola, que es el que lleva
++// el mando de verdad; pasarlos por ui_text() convertiría «Select» en «Elegir».
++static const char* etiqueta_direccion(const char* etiqueta) {
++    if (!etiqueta) return "";
++    if (!strcmp(etiqueta, "Up") || !strcmp(etiqueta, "Down") ||
++        !strcmp(etiqueta, "Left") || !strcmp(etiqueta, "Right"))
++        return ui_text(etiqueta);
++    return etiqueta;
++}
++
+ static void bind_row_label(const char* label, const ImVec4& colour,
+                            float label_col_w, float min_gap) {
++    label = etiqueta_direccion(label);
+     ImGui::AlignTextToFramePadding();
+     ImGui::TextColored(colour, "%s", label);
+     const float pad = label_col_w - ImGui::CalcTextSize(label).x;
+@@ -5553,14 +5586,14 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+ 
+             ImGui::SameLine();
+             if (!can_pad) ImGui::BeginDisabled();
+-            if (ImGui::Button("Save Profile"))
++            if (ImGui::Button(ui_text("Save Profile")))
+                 launcher_binds_save_snes_gamepad(m, p + 1);
+             if (ImGui::IsItemHovered() && can_pad)
+                 ImGui::SetTooltip("Store this controller's mapping, name and "
+                                   "deadzone so it comes back next time it is "
+                                   "selected");
+             ImGui::SameLine();
+-            if (ImGui::Button("Rename")) {
++            if (ImGui::Button(ui_text("Rename"))) {
+                 std::snprintf(s_snes_rename_buf, sizeof(s_snes_rename_buf),
+                               "%s", m->player_pad_name[p]);
+                 s_snes_rename_open = true;
+@@ -5572,7 +5605,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                     ImGui::SameLine(right - del_w);
+                 else
+                     ImGui::SameLine();
+-                if (ImGui::Button("Delete Profile", ImVec2(del_w, 0)))
++                if (ImGui::Button(ui_text("Delete Profile"), ImVec2(del_w, 0)))
+                     launcher_binds_delete_snes_gamepad(m, p + 1);
+                 if (ImGui::IsItemHovered() && can_pad)
+                     ImGui::SetTooltip("Forget this controller's saved profile. "
+@@ -5585,14 +5618,14 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+             ImGui::SetNextWindowPos(c2, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+             if (ImGui::BeginPopupModal("Rename Controller", &s_snes_rename_open,
+                                        ImGuiWindowFlags_AlwaysAutoResize)) {
+-                ImGui::TextUnformatted("Display name for this controller:");
++                ImGui::TextUnformatted(ui_text("Display name for this controller:"));
+                 ImGui::SetNextItemWidth(px(320));
+                 const bool enter = ImGui::InputText(
+                     "##snes_rename_pad", s_snes_rename_buf,
+                     sizeof(s_snes_rename_buf),
+                     ImGuiInputTextFlags_EnterReturnsTrue);
+                 ImGui::Spacing();
+-                if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++                if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+                     s_snes_rename_open = false;
+                     ImGui::CloseCurrentPopup();
+                 }
+@@ -5653,7 +5686,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+             }
+             if (!can_pad) ImGui::EndDisabled();
+             if (ImGui::GetTime() < s_n64_saved_until)
+-                ImGui::TextColored(col(th.accent2), "Input Profile Saved!");
++                ImGui::TextColored(col(th.accent2), ui_text("Input Profile Saved!"));
+ 
+             if (s_n64_rename_open) ImGui::OpenPopup(ui_text("Rename Gamepad"));
+             ImVec2 c3 = ImGui::GetMainViewport()->GetCenter();
+@@ -5796,9 +5829,9 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+ 
+             // Invert toggles.
+             bool ix = m->s.mouse_invert_x != 0;
+-            if (ImGui::Checkbox("Invert X", &ix)) launcher_model_toggle_mouse_invert_x(m);
++            if (ImGui::Checkbox(ui_text("Invert X"), &ix)) launcher_model_toggle_mouse_invert_x(m);
+             bool iy = m->s.mouse_invert_y != 0;
+-            if (ImGui::Checkbox("Invert Y", &iy)) launcher_model_toggle_mouse_invert_y(m);
++            if (ImGui::Checkbox(ui_text("Invert Y"), &iy)) launcher_model_toggle_mouse_invert_y(m);
+ 
+             // Three rebindable mouse buttons -> an N64 action (or None). The
+             // vocabulary is the active profile's ControllerSpec.buttons[].
+@@ -5975,7 +6008,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                         ImGui::PushStyleColor(
+                             ImGuiCol_Button, col(th.accent));
+                     if (ImGui::Button(
+-                            capturing ? "[ press a key... ]"
++                            capturing ? ui_text("[ press a key... ]")
+                                       : m->camera_binds[action],
+                             ImVec2(-FLT_MIN, 0)))
+                         launcher_model_begin_camera_capture(m, action);
+@@ -5990,11 +6023,11 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                 ImGui::EndTable();
+             }
+             ImGui::Spacing();
+-            if (ImGui::Button("Reset Camera Bindings"))
++            if (ImGui::Button(ui_text("Reset Camera Bindings")))
+                 launcher_binds_reset_camera(m);
+             if (m->camera_capturing)
+                 ImGui::TextColored(
+-                    col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
++                    col(th.warn), ui_text("Listening... (Esc cancels, Backspace unbinds)"));
+         } end_panel();
+     }
+ 
+@@ -6031,8 +6064,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                                      m->s.player_gamepad_guid[p][0];
+ 
+             ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
+-            if (has_pad_src) ImGui::Text("GAMEPAD BINDINGS - PLAYER %d", p + 1);
+-            else             ImGui::Text("KEYBOARD BINDINGS - PLAYER %d", p + 1);
++            if (has_pad_src) ImGui::Text(ui_text("GAMEPAD BINDINGS - PLAYER %d"), p + 1);
++            else             ImGui::Text(ui_text("KEYBOARD BINDINGS - PLAYER %d"), p + 1);
+             ImGui::PopStyleColor();
+             // Both slots have a visible chip (see the grid below), so the
+             // hint only has to say how to edit them.
+@@ -6167,10 +6200,10 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                     ImGui::EndTable();
+                 }
+                 ImGui::Spacing();
+-                if (ImGui::Button("Map All Bindings"))
++                if (ImGui::Button(ui_text("Map All Bindings")))
+                     launcher_model_begin_map_all(m);
+                 ImGui::SameLine();
+-                if (ImGui::Button("Reset to Defaults"))
++                if (ImGui::Button(ui_text("Reset to Defaults")))
+                     launcher_binds_reset_player(m, m->cfg_player + 1);
+                 // Save Profile -- keyboard captures already write keybinds.ini
+                 // on every rebind, so this is the explicit commit + flush.
+@@ -6179,7 +6212,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                     const float save_w = px(120.0f);
+                     const float right = ImGui::GetWindowContentRegionMax().x;
+                     ImGui::SameLine(right - save_w);
+-                    if (ImGui::Button("Save Profile", ImVec2(save_w, 0))) {
++                    if (ImGui::Button(ui_text("Save Profile"), ImVec2(save_w, 0))) {
+                         launcher_binds_save_psx_keyboard(m, p + 1);
+                         s_kb_profile_saved_until = ImGui::GetTime() + 2.5;
+                     }
+@@ -6197,7 +6230,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                         m->map_all_active ? " — Map All" : "");
+                 }
+                 if (ImGui::GetTime() < s_kb_profile_saved_until)
+-                    ImGui::TextColored(col(th.accent2), "Input Profile Saved!");
++                    ImGui::TextColored(col(th.accent2), ui_text("Input Profile Saved!"));
+             } else {
+                 float label_col_w = px(90.0f);
+                 for (int i = 0; i < LNG_PSX_PAD_BUTTON_COUNT; ++i) {
+@@ -6229,7 +6262,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                                                : "(unbound)";
+                             if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
+                             const char* chip = wait_rel ? "[ release button... ]"
+-                                              : cap     ? "[ press a button... ]"
++                                              : cap     ? ui_text("[ press a button... ]")
+                                                         : pl;
+                             if (ImGui::Button(chip, ImVec2(chip_w, 0))) {
+                                 m->map_all_active = false;
+@@ -6249,14 +6282,14 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                     ImGui::EndTable();
+                 }
+                 ImGui::Spacing();
+-                if (ImGui::Button("Map All Bindings")) {
++                if (ImGui::Button(ui_text("Map All Bindings"))) {
+                     launcher_model_begin_map_all(m);
+                     if (m->capturing && m->player_pad_id[p] &&
+                         !launcher_input_gamepad_at_rest(m->player_pad_id[p]))
+                         m->map_all_wait_release = true;
+                 }
+                 ImGui::SameLine();
+-                if (ImGui::Button("Reset to Defaults"))
++                if (ImGui::Button(ui_text("Reset to Defaults")))
+                     launcher_binds_reset_player(m, m->cfg_player + 1);
+                 // Save Profile — name, choice, mappings, and deadzone for this GUID.
+                 static double s_profile_saved_until = 0.0;
+@@ -6264,7 +6297,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                     const float save_w = px(120.0f);
+                     const float right = ImGui::GetWindowContentRegionMax().x;
+                     ImGui::SameLine(right - save_w);
+-                    if (ImGui::Button("Save Profile", ImVec2(save_w, 0))) {
++                    if (ImGui::Button(ui_text("Save Profile"), ImVec2(save_w, 0))) {
+                         launcher_binds_save_psx_gamepad(m, p + 1);
+                         s_profile_saved_until = ImGui::GetTime() + 2.5;
+                     }
+@@ -6286,7 +6319,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                     }
+                 }
+                 if (ImGui::GetTime() < s_profile_saved_until)
+-                    ImGui::TextColored(col(th.accent2), "Input Profile Saved!");
++                    ImGui::TextColored(col(th.accent2), ui_text("Input Profile Saved!"));
+             }
+         } else {
+         // Alternate binds per input (N64's input.cfg keeps two; SNES/GBA
+@@ -6329,8 +6362,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+         // Heading uses accent2 so each console's title tints in ITS logo colour
+         // (N64 blue; single-accent consoles set accent2 == accent).
+         ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
+-        if (has_pad) ImGui::Text("INPUT BINDINGS - PLAYER %d", p + 1);
+-        else         ImGui::Text("KEYBOARD BINDINGS - PLAYER %d", p + 1);
++        if (has_pad) ImGui::Text(ui_text("INPUT BINDINGS - PLAYER %d"), p + 1);
++        else         ImGui::Text(ui_text("KEYBOARD BINDINGS - PLAYER %d"), p + 1);
+         ImGui::PopStyleColor(); ImGui::Spacing();
+ 
+         // Rows shown follow the player's ACTIVE pad mode (Genesis 3-Button hides
+@@ -6421,7 +6454,7 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                                          m->capture_btn == b
+                                                       && m->capture_slot == slot;
+                         const char* txt = cap
+-                            ? "[ press a key... ]"
++                            ? ui_text("[ press a key... ]")
+                             : (slot == 0 ? m->binds[p][b] : m->binds_alt[p][b]);
+                         if (cap) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
+                         if (ImGui::Button(txt, ImVec2(chip_w, 0)))
+@@ -6441,9 +6474,9 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                     const char* pl = settings_player_binds
+                         ? settings_pad
+                         : (m->pad_binds[p][b][0]
+-                            ? m->pad_binds[p][b] : "(unbound)");
++                            ? m->pad_binds[p][b] : ui_text("(unbound)"));
+                     if (cap_pad) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
+-                    if (ImGui::Button(cap_pad ? "[ press a button... ]" : pl, ImVec2(chip_w, 0)))
++                    if (ImGui::Button(cap_pad ? ui_text("[ press a button... ]") : pl, ImVec2(chip_w, 0)))
+                         launcher_model_begin_pad_capture(m, b);
+                     if (cap_pad) ImGui::PopStyleColor();
+                     ImGui::PopID();
+@@ -6455,8 +6488,8 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                     if (cap_key) ImGui::PushStyleColor(ImGuiCol_Button, col(th.accent));
+                     const char* key_text = settings_player_binds
+                         ? settings_key_label(m->s.player_key_bind[p][b])
+-                        : m->binds[p][b];
+-                    if (ImGui::Button(cap_key ? "[ press a key... ]" : key_text, ImVec2(chip_w, 0)))
++                        : ui_text(m->binds[p][b]);
++                    if (ImGui::Button(cap_key ? ui_text("[ press a key... ]") : key_text, ImVec2(chip_w, 0)))
+                         launcher_model_begin_capture(m, b);
+                     if (cap_key) ImGui::PopStyleColor();
+                 }
+@@ -6524,16 +6557,16 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+         }
+ 
+         if (automap_running) {
+-            if (ImGui::Button("Cancel Auto Map")) {
++            if (ImGui::Button(ui_text("Cancel Auto Map"))) {
+                 s_automap_i = -1;
+                 s_automap_player = -1;
+             }
+-        } else if (ImGui::Button("Auto Map All")) {
++        } else if (ImGui::Button(ui_text("Auto Map All"))) {
+             s_automap_i = 0;
+             s_automap_player = p;
+         }
+         ImGui::SameLine();
+-        if (ImGui::Button("Reset to Defaults")) {
++        if (ImGui::Button(ui_text("Reset to Defaults"))) {
+             if (settings_player_binds)
+                 launcher_model_reset_player_bindings(m, m->cfg_player);
+             else
+@@ -6551,16 +6584,16 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                                   !launcher_input_gamepad_at_rest(pad_id_now);
+             if (settling) {
+                 ImGui::TextColored(col(th.warn),
+-                                   "Auto Map - release the controller to "
+-                                   "continue");
++                                   ui_text("Auto Map - release the controller to "
++                                           "continue"));
+             } else {
+-                ImGui::TextColored(col(th.accent), "Auto Map %d/%d - press %s%s",
++                ImGui::TextColored(col(th.accent), ui_text("Auto Map %d/%d - press %s%s"),
+                                    cell + 1, automap_total,
+-                                   spec.buttons[b].label,
+-                                   pad_src ? " on the controller" : "");
++                                   etiqueta_direccion(spec.buttons[b].label),
++                                   pad_src ? ui_text(" on the controller") : "");
+             }
+         } else if (m->capturing) {
+-            ImGui::TextColored(col(th.warn), "Listening... (Esc cancels, Backspace unbinds)");
++            ImGui::TextColored(col(th.warn), ui_text("Listening... (Esc cancels, Backspace unbinds)"));
+         }
+         } // !is_psx
+     } end_panel();
+@@ -7239,7 +7272,7 @@ void draw_netplay_player_modal(LauncherModel* m, const LauncherTheme& th) {
+             ImGui::PopTextWrapPos();
+         }
+         ImGui::Spacing();
+-        if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++        if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+             /* "Do they still have no name?" must ask the EFFECTIVE name. A
+              * signed-in player's name is the account handle; s.netplay_player_name
+              * is only the guest/LAN fallback and is routinely empty for them. Asking
+@@ -7472,7 +7505,7 @@ void draw_netplay_automatch_modal(LauncherModel* m, const LauncherTheme& th) {
+         }
+         if (n == 0)
+             ImGui::TextColored(col(th.warn), "This server has no automatch queues.");
+-        if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++        if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+             m->netplay_automatch_picker_open = false;
+             ImGui::CloseCurrentPopup();
+         }
+@@ -7692,7 +7725,7 @@ void draw_netplay_report_modal(LauncherModel* m, const LauncherTheme& th) {
+     }
+ 
+     ImGui::Spacing();
+-    if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++    if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+         m->netplay_report_modal_open = false;
+         ImGui::CloseCurrentPopup();
+     }
+@@ -7749,7 +7782,7 @@ void draw_netplay_direct_modal(LauncherModel* m, const LauncherTheme& th) {
+         ImGui::Spacing();
+         if (m->netplay_status[0])
+             ImGui::TextColored(col(th.warn), "%s", m->netplay_status);
+-        if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++        if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+             m->netplay_direct_modal_open = false;
+             ImGui::CloseCurrentPopup();
+         }
+@@ -7809,7 +7842,7 @@ void draw_netplay_network_modal(LauncherModel* m, const LauncherTheme& th) {
+                                      sizeof(m->netplay_lobby_url),
+                                      ImGuiInputTextFlags_EnterReturnsTrue);
+         ImGui::Spacing();
+-        if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++        if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+             const auto* np = np_cb(m);
+             const char* current = np && np->default_url ? np->default_url(np->ctx) : "";
+             std::snprintf(m->netplay_lobby_url, sizeof(m->netplay_lobby_url), "%s",
+@@ -8044,7 +8077,7 @@ void draw_netplay_host_modal(LauncherModel* m, const LauncherTheme& th) {
+         ImGui::InputText("##host_password", m->netplay_host_password,
+                          sizeof(m->netplay_host_password), ImGuiInputTextFlags_Password);
+         ImGui::Spacing();
+-        if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++        if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+             host_create_status[0] = '\0';
+             m->netplay_host_modal_open = false;
+             ImGui::CloseCurrentPopup();
+@@ -8192,7 +8225,7 @@ void draw_netplay_password_modal(LauncherModel* m, const LauncherTheme& th) {
+         if (m->netplay_status[0])
+             ImGui::TextColored(col(th.warn), "%s", m->netplay_status);
+         ImGui::Spacing();
+-        if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++        if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+             m->netplay_password_modal_open = false;
+             ImGui::CloseCurrentPopup();
+         }
+@@ -9775,7 +9808,7 @@ static void draw_lobby_mods_popup(LauncherModel* m, const LauncherTheme& th,
+                         ImGui::ProgressBar(progress / 100.0f,
+                                            ImVec2(px(320), 0));
+                         ImGui::SameLine();
+-                        if (ImGui::Button("Cancel", ImVec2(px(100), 0)) &&
++                        if (ImGui::Button(ui_text("Cancel"), ImVec2(px(100), 0)) &&
+                             np->mod_xfer_cancel) {
+                             np->mod_xfer_cancel(np->ctx);
+                         }
+@@ -13497,7 +13530,7 @@ void draw_setup_wizard_modal(LauncherModel* m, const LauncherTheme& th) {
+     } else {
+         const char* media_help =
+             (plat == SETUP_PLAT_GBA)
+-                ? "Select your verified Game Boy Advance ROM (.gba)."
++                ? ui_text("Select your verified Game Boy Advance ROM (.gba).")
+             : (plat == SETUP_PLAT_SNES)
+                 ? "Select your Super Nintendo ROM (.sfc / .smc)."
+                 : "Select your game ROM file.";
+@@ -13800,7 +13833,7 @@ void draw_bios_confirm_modal(LauncherModel* m, const LauncherTheme& th) {
+         launcher_model_request_bios_path(m, "");
+     }
+     ImGui::SameLine();
+-    if (ImGui::Button("Cancel", ImVec2(px(100), px(32))))
++    if (ImGui::Button(ui_text("Cancel"), ImVec2(px(100), px(32))))
+         launcher_model_bios_confirm_cancel(m);
+     if (!m->bios_confirm_open) ImGui::CloseCurrentPopup();
+     ImGui::EndPopup();
+@@ -13852,7 +13885,7 @@ void draw_bios_play_modal(LauncherModel* m, const LauncherTheme& th) {
+     if (ImGui::Button("Use OpenBIOS", ImVec2(px(130), px(32))))
+         launcher_model_bios_play_use_openbios(m);
+     ImGui::SameLine();
+-    if (ImGui::Button("Cancel", ImVec2(px(100), px(32))))
++    if (ImGui::Button(ui_text("Cancel"), ImVec2(px(100), px(32))))
+         launcher_model_bios_play_cancel(m);
+     if (!m->bios_play_modal_open) ImGui::CloseCurrentPopup();
+     ImGui::EndPopup();
+@@ -13884,7 +13917,7 @@ void draw_pgo_confirm_modal(LauncherModel* m, const LauncherTheme& th) {
+     if (ImGui::Button("Start training", ImVec2(px(160), px(32))))
+         launcher_model_pgo_confirm_accept(m);
+     ImGui::SameLine();
+-    if (ImGui::Button("Cancel", ImVec2(px(100), px(32))))
++    if (ImGui::Button(ui_text("Cancel"), ImVec2(px(100), px(32))))
+         launcher_model_pgo_confirm_cancel(m);
+     if (!m->pgo_confirm_open) ImGui::CloseCurrentPopup();
+     ImGui::EndPopup();
+@@ -13916,27 +13949,27 @@ void draw_fmv_timing_confirm_modal(LauncherModel* m, const LauncherTheme& th) {
+     if (ImGui::Button("Generate & rebuild", ImVec2(px(180), px(32))))
+         launcher_model_fmv_timing_confirm_accept(m);
+     ImGui::SameLine();
+-    if (ImGui::Button("Cancel", ImVec2(px(100), px(32))))
++    if (ImGui::Button(ui_text("Cancel"), ImVec2(px(100), px(32))))
+         launcher_model_fmv_timing_confirm_cancel(m);
+     if (!m->fmv_timing_confirm_open) ImGui::CloseCurrentPopup();
+     ImGui::EndPopup();
+ }
+ 
+ void draw_skip_modal(LauncherModel* m) {
+-    if (m->skip_modal_open) ImGui::OpenPopup("Skip the launcher on boot?");
++    if (m->skip_modal_open) ImGui::OpenPopup(ui_text("Skip the launcher on boot?"));
+     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+-    if (ImGui::BeginPopupModal("Skip the launcher on boot?", nullptr,
++    if (ImGui::BeginPopupModal(ui_text("Skip the launcher on boot?"), nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize)) {
+-        ImGui::TextWrapped("The launcher will no longer appear - the game boots straight in. "
++        ImGui::TextWrapped("%s", ui_text("The launcher will no longer appear - the game boots straight in. "
+                            "Run with \"--launcher\" or set \"SkipLauncher = 0\" in config.ini "
+-                           "to bring it back.");
++                           "to bring it back."));
+         ImGui::Spacing();
+-        if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++        if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+             launcher_model_skip_cancel(m); ImGui::CloseCurrentPopup();
+         }
+         ImGui::SameLine();
+-        if (ImGui::Button("Skip on Boot", ImVec2(px(140), 0))) {
++        if (ImGui::Button(ui_text("Skip on Boot"), ImVec2(px(140), 0))) {
+             launcher_model_skip_confirm(m); ImGui::CloseCurrentPopup();
+         }
+         ImGui::EndPopup();
+@@ -13953,12 +13986,12 @@ void draw_restore_defaults_modal(LauncherModel* m) {
+             "This resets display, audio, controller, and launcher choices. "
+             "Your selected ROM, SRAM, and save states are not changed.");
+         ImGui::Spacing();
+-        if (ImGui::Button("Cancel", ImVec2(px(120), 0))) {
++        if (ImGui::Button(ui_text("Cancel"), ImVec2(px(120), 0))) {
+             launcher_model_cancel_restore_defaults(m);
+             ImGui::CloseCurrentPopup();
+         }
+         ImGui::SameLine();
+-        if (ImGui::Button("Restore Defaults", ImVec2(px(150), 0))) {
++        if (ImGui::Button(ui_text("Restore Defaults"), ImVec2(px(150), 0))) {
+             launcher_model_restore_defaults(m);
+             ImGui::CloseCurrentPopup();
+         }
+diff --git a/src/common/launcher_i18n.cpp b/src/common/launcher_i18n.cpp
+index 14bfe08..2451e82 100644
+--- a/src/common/launcher_i18n.cpp
++++ b/src/common/launcher_i18n.cpp
+@@ -482,8 +482,105 @@ static const LauncherI18nEntry kSpanish[] = {
+     {"Edit##cc", "Editar##cc"},
+     {"Detect this computer again and apply the preset it suits.", "Detecta de nuevo este equipo y aplica el ajuste que le conviene."},
+     {"EXPERIMENTAL", "EXPERIMENTAL"},
++    // ---- 0.4.3: pantalla de asignación de controles, selector de archivos y avisos ----
++    {"ASSIST CONTROLS", "CONTROLES DE AYUDA"},
++    {"ASSIST SHORTCUTS", "ATAJOS DE AYUDA"},
++    {"HOST SHORTCUTS", "ATAJOS DEL PROGRAMA"},
++    {"Reset Assist Controls", "Restablecer controles de ayuda"},
++    {"Reset Host Shortcuts", "Restablecer atajos"},
++    {"Listening... (Esc cancels, Backspace unbinds)", "Escuchando... (Esc cancela, Retroceso borra la asignación)"},
++    {"[ press a key... ]", "[ pulsa una tecla... ]"},
++    {"[ press a button... ]", "[ pulsa un botón... ]"},
++    {"[ button... ]", "[ botón... ]"},
++    {"Rename", "Renombrar"},
++    {"Delete Profile", "Borrar perfil"},
++    {"Display name for this controller:", "Nombre de este mando:"},
++    {"Input Profile Saved!", "¡Perfil de controles guardado!"},
++    {"Invert X", "Invertir X"},
++    {"Invert Y", "Invertir Y"},
++    {"Reset Camera Bindings", "Restablecer controles de cámara"},
++    {"GAMEPAD BINDINGS - PLAYER %d", "ASIGNACIÓN DEL MANDO - JUGADOR %d"},
++    {"KEYBOARD BINDINGS - PLAYER %d", "ASIGNACIÓN DEL TECLADO - JUGADOR %d"},
++    {"INPUT BINDINGS - PLAYER %d", "ASIGNACIÓN DE CONTROLES - JUGADOR %d"},
++    {"Map All Bindings", "Asignar todos"},
++    {"Auto Map All", "Asignar todos"},
++    {"Cancel Auto Map", "Cancelar asignación"},
++    {"Reset to Defaults", "Valores por defecto"},
++    {"Auto Map %d/%d - press %s%s", "Asignando %d/%d: pulsa %s%s"},
++    {" on the controller", " en el mando"},
++    {"Auto Map - release the controller to continue", "Asignando: suelta el mando para continuar"},
++    {"(Not set)", "(sin definir)"},
++    {"no save yet", "aún sin partida"},
++    {"Home", "Inicio"},
++    {"Save as", "Guardar como"},
++    {"Showing: %s", "Mostrando: %s"},
++    {"The desktop file picker could not run.", "No se pudo abrir el selector de archivos."},
++    {"No desktop file picker (zenity/kdialog) found.", "No hay selector de archivos (zenity/kdialog)."},
++    {" (built-in)", " (integrado)"},
++    {"Skip the launcher on boot?", "¿Saltar el lanzador al arrancar?"},
++    {"The launcher will no longer appear - the game boots straight in. Run with \"--launcher\" or set \"SkipLauncher = 0\" in config.ini to bring it back.", "El lanzador dejará de aparecer y el juego arrancará directamente. Para recuperarlo, ejecuta con \"--launcher\" o pon \"skip_launcher = 0\" en config.ini."},
++    {"Skip on Boot", "Saltar al arrancar"},
++    {"Changes are saved when you press Play or close the launcher.", "Los cambios se guardan al pulsar JUGAR o al cerrar el lanzador."},
++    {"Up", "Arriba"},
++    {"Down", "Abajo"},
++    {"Left", "Izquierda"},
++    {"Right", "Derecha"},
++    {"Return", "Intro"},
++    {"Space", "Espacio"},
++    {"Backspace", "Retroceso"},
++    {"Escape", "Esc"},
++    {"Left Shift", "Mayús izq."},
++    {"Right Shift", "Mayús der."},
++    {"Left Ctrl", "Ctrl izq."},
++    {"Right Ctrl", "Ctrl der."},
++    {"Left Alt", "Alt izq."},
++    {"Right Alt", "Alt der."},
++    {"Raw", "Sin filtro"},
++    {"Unlit", "Sin luz"},
++    {"Frontlit", "Luz frontal"},
++    {"Backlit", "Luz trasera"},
++    {"Classic", "Clásica"},
++    {"Keypad +", "Teclado num. +"},
++    {"Keypad -", "Teclado num. -"},
++    {"Shift", "Mayús"},
++    // ---- 0.4.3: explorador de archivos integrado ----
++    {"Select ROM", "Elegir ROM"},
++    {"Select BIOS", "Elegir BIOS"},
++    {"Save file", "Guardar archivo"},
++    {"Built-in browser (no desktop file-picker service required)", "Explorador integrado (no hace falta el selector del escritorio)"},
++    {"Game Boy Advance ROM (.gba)", "ROM de Game Boy Advance (.gba)"},
++    {"BIOS image", "Imagen de BIOS"},
++    {"BIOS image (.bin .rom)", "Imagen de BIOS (.bin .rom)"},
++    {"Up##carpeta", "Subir##carpeta"},
++    {"Use this folder", "Usar esta carpeta"},
++    {"Use selected file", "Usar el archivo elegido"},
++    {"Overwrite", "Sobrescribir"},
++    {"Save here", "Guardar aquí"},
++    {"That folder does not exist or cannot be opened.", "Esa carpeta no existe o no se puede abrir."},
++    {"Unable to open this folder.", "No se pudo abrir esta carpeta."},
++    {"Open an existing folder first.", "Abre primero una carpeta que exista."},
++    {"Type a file name to save as.", "Escribe el nombre con el que guardar el archivo."},
++    {"That folder does not exist.", "Esa carpeta no existe."},
++    {"That file already exists. Press Overwrite to replace it.", "Ese archivo ya existe. Pulsa Sobrescribir para reemplazarlo."},
++    {"Select an existing file of the right type.", "Elige un archivo que exista y sea del tipo correcto."},
++    {"Select an existing file matching: %s", "Elige un archivo que exista y encaje con: %s"},
++    {"Select your verified Game Boy Advance ROM (.gba).", "Elige tu ROM de Game Boy Advance (.gba) verificada."},
+ };
+ 
++// PARCHE mario-tennis: con MTP_I18N_DEBUG=1 se escribe en stderr cada texto sin traducir (una
++// vez por texto), para encontrar lo que falta en la tabla al recorrer los menús.
++static void avisar_sin_traducir(const char* english) {
++    static const char* activo = std::getenv("MTP_I18N_DEBUG");
++    if (!activo || !activo[0] || !english || !english[0]) return;
++    static unsigned long long vistos[4096];
++    static int n_vistos = 0;
++    unsigned long long h = 1469598103934665603ULL;               // FNV-1a de 64 bits
++    for (const char* c = english; *c; ++c) h = (h ^ (unsigned char)*c) * 1099511628211ULL;
++    for (int i = 0; i < n_vistos; ++i) if (vistos[i] == h) return;
++    if (n_vistos < 4096) vistos[n_vistos++] = h;
++    std::fprintf(stderr, "i18n sin traducir: %s\n", english);
++}
++
+ static const char* lookup(const LauncherI18nEntry* entries, int count,
+                           const char* english) {
+     if (!english) return "";
+@@ -491,6 +588,7 @@ static const char* lookup(const LauncherI18nEntry* entries, int count,
+         if (std::strcmp(entries[i].english, english) == 0)
+             return entries[i].localized;
+     }
++    avisar_sin_traducir(english);
+     return english;
+ }
+ 

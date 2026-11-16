@@ -32,6 +32,26 @@ set(MTP_DEBUG_PORT 19900
 # (elegir y verificar ROM/BIOS, mando, teclado, vídeo, audio) y menú dentro del
 # juego. Necesita SDL2 y OpenGL. Se puede apagar con -DMTP_MENU=OFF.
 option(MTP_MENU "Compilar el menú de configuración (recomp-ui)" ON)
+# Idioma de los textos del menú por defecto: "es" (español) o "en". Las
+# traducciones están en parches/recomp-ui-0001-*.patch. La persona lo cambia
+# desde los ajustes ("Idioma del menú", parche recomp-ui-0002) y se guarda en
+# config.ini, [Menu] Language; eso manda sobre este valor. Para forzarlo sin
+# recompilar (pruebas): variable de entorno MTP_IDIOMA_MENU=en (o es).
+set(MTP_IDIOMA_MENU "es" CACHE STRING "Idioma del menú de configuración: es o en")
+# Versión instalada (la del archivo VERSION): el menú de arranque la compara con la del
+# repositorio para avisar de que hay una nueva (src/aviso_actualizacion.cpp).
+set(MTP_VERSION_TXT "")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+    file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" MTP_VERSION_TXT)
+    string(STRIP "${MTP_VERSION_TXT}" MTP_VERSION_TXT)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
+endif()
+# Dirección del archivo VERSION del repositorio, de donde el menú saca la versión más reciente.
+# Si tu repositorio se llama de otra manera, cámbiala aquí (-DMTP_URL_VERSION=...) o, ya
+# instalado, con «UpdateUrl = ...» en la sección [Menu] de config.ini. Para no comprobar
+# nada: «CheckUpdates = 0» en [Menu], o -DMTP_URL_VERSION= (vacío).
+set(MTP_URL_VERSION "https://raw.githubusercontent.com/MaErGa/MarioTennisPowerTourRecomp/main/VERSION"
+    CACHE STRING "Dirección (https) del archivo VERSION para el aviso de versión nueva")
 set(RECOMP_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/externo/recomp-ui"
     CACHE PATH "Ruta al checkout de recomp-ui (el menú)")
 
@@ -102,6 +122,16 @@ add_executable(MarioTennisPowerTourRecomp
     src/main.cpp
     ${MTP_GENERATED})
 
+if(MTP_MENU)
+    target_sources(MarioTennisPowerTourRecomp PRIVATE src/aviso_actualizacion.cpp)
+    target_compile_definitions(MarioTennisPowerTourRecomp PRIVATE
+        "MTP_VERSION=\"${MTP_VERSION_TXT}\""
+        "MTP_URL_VERSION_DEFECTO=\"${MTP_URL_VERSION}\"")
+    if(WIN32)
+        target_link_libraries(MarioTennisPowerTourRecomp PRIVATE winhttp)
+    endif()
+endif()
+
 # Los trozos recompilados son enormes: limitamos optimización y depuración.
 set(MTP_RECOMPILED ${MTP_GENERATED})
 list(FILTER MTP_RECOMPILED INCLUDE REGEX "/recompiled_[0-9]+\\.cpp$")
@@ -138,6 +168,9 @@ if(MTP_MENU)
         src)
     # CONSOLE gba: solo se incluyen los recursos (mando, fuentes) de GBA.
     recomp_target_launcher_ui(game_launcher_ui CONSOLE gba)
+    recomp_target_launcher_language(game_launcher_ui "${MTP_IDIOMA_MENU}")
+    # El menú muestra el aviso de versión nueva que da src/aviso_actualizacion.cpp.
+    target_compile_definitions(game_launcher_ui PRIVATE MTP_EXTRAS_MENU=1)
     set_target_properties(game_launcher_ui PROPERTIES POSITION_INDEPENDENT_CODE ON)
     if(NOT TARGET SDL2::SDL2)
         find_package(SDL2 REQUIRED)

@@ -11,6 +11,15 @@ guardado). El menú de configuración es [recomp-ui](https://github.com/mstan/re
 (licencia MIT, [Cult-of-GBA](https://github.com/Cult-of-GBA/BIOS)). Lo único que
 tienes que aportar es tu propia ROM.
 
+## Descargar
+
+Ve a la pestaña **[Releases](https://github.com/MaErGa/MarioTennisPowerTourRecomp/releases)** y baja
+`MarioTennisPowerTourRecomp-X.Y.Z.zip` (equivale al «Source code (zip)» de GitHub). Descomprímelo y haz
+doble clic en **`INSTALAR.bat`**: el instalador compila el juego **en tu PC con tu propia ROM** (ver
+«Cómo usarlo»). Aquí **no hay `.exe` ni ROM** para bajar: el programa contiene el código del juego
+traducido y por eso no se puede publicar; cada persona lo construye con su propio volcado. Si ya lo
+tienes instalado, descomprime la versión nueva y usa `ACTUALIZAR.bat` (el menú te avisa cuando hay una).
+
 ## Estado
 
 Comprobado en Linux (compilación desde cero con tu ROM, ejecución con ventana
@@ -19,12 +28,22 @@ virtual y sin ventana):
 | Cosa | Estado |
 |---|---|
 | Verificar tu ROM por SHA-1 y recordarla (se elige una vez) | Funciona |
-| Menú de arranque: ROM, mando, teclado, vídeo, audio | Funciona (en inglés) |
+| Menú de arranque: ROM, mando, teclado, vídeo, audio | Funciona, **en español** (también la asignación de controles, los atajos, los modelos de pantalla y el explorador de archivos) |
+| **Menú del juego (Esc) en español** | **Funciona**: pantalla, gráficos, sonido y sistema, con tildes y ñ; comprobado con capturas de la ventana real (a 100 % y simulando un 150 %) |
+| **Selector «Idioma del menú» (Español / English)** | **Funciona** en el menú de arranque y en el de Esc: cambia al instante, se guarda en `config.ini` y no toca el idioma del juego. Comprobado con capturas de la ventana real |
+| **Captura de pantalla (F10)** | **Funciona**: guarda un PNG de la imagen del juego, sin filtros, en la carpeta `capturas` (también en pausa). Comprobado en Linux y **en un Windows real** (16-nov-2026: capturas del juego en español hechas con F10; si se pulsa dos veces en el mismo segundo, la segunda lleva `_2`) |
+| **Visor de capturas en el menú** (botón «Capturas») | **Funciona**: rejilla de miniaturas, vista grande con Anterior/Siguiente, borrar (con confirmación) y abrir carpeta. Comprobado con capturas de la ventana real en Linux (rejilla, vista grande, carpeta vacía, imagen dañada, español e inglés); «Abrir carpeta» y el manejo solo con teclado/mando **sin probar** |
+| **Aviso de versión nueva al abrir el menú** | **Funciona en Linux** (12 pruebas con un servidor local); la descarga de Windows (WinHTTP) está compilada pero **sin probar en un Windows real**. Se apaga con `[Menu] CheckUpdates = 0` |
+| **Perfil por mando** (recordar tus botones) | Lo trae recomp-ui («Guardar/Renombrar/Borrar perfil»), traducido desde 0.4.3; **sin probar con un mando físico** |
+| **Imagen nítida con el escalado de Windows (125 %, 150 %…)** | El programa se declara consciente del DPI y ajusta la ventana en múltiplos enteros; el menú de Esc crece con el texto (0.4.2). Visto funcionando en un Windows real; el último ajuste del menú se comprobó simulando factores 1,5 y 2,0 |
 | Arranque con la BIOS libre | Funciona |
 | **Los cinco idiomas** (inglés, alemán, francés, español, italiano): selección, aviso de salud, creación de personaje, introducción | **Funciona** en los cinco, también sin compilador en el equipo |
 | Modo historia: habitación, diálogos, plaza, academia, restaurante y menús (Super Golpes, etc.) | Funciona en los cinco idiomas |
 | **Partido de tenis** (Exhibición, Mario contra Peach) | **Funciona**: pista, saque y jugadores se mueven |
 | Pantalla 3:2, 16:9 estirado y 16:9 con barras difuminadas | Funciona (ver «Pantalla») |
+| **Filtros de imagen** (9: Scale2x/3x/4x, rejilla LCD de la GBA, CRT, «HD smooth»…) | **Funciona**: se eligen en el menú de arranque o **en directo con F12** (se guarda), y se comprobaron con capturas de la ventana real (ventana, pantalla completa y los tres modos de aspecto) con OpenGL y con Direct3D 9 (Wine); pruebas automáticas de cada filtro. La rejilla LCD y las líneas CRT se calculan por CPU sobre la imagen final, así que no dependen de la tarjeta gráfica. **Sin probar con una tarjeta gráfica real en Windows (Direct3D 11)** |
+| **Avance rápido (Tab)** | Salta el dibujado de los fotogramas intermedios y no espera entre ellos: va todo lo rápido que permita tu equipo, hasta el multiplicador (×4 por defecto). El título de la ventana muestra la velocidad real y el coste de emular/dibujar (`turbo x2.4 \| 31 img/s \| emu 4.1 ms \| dib 9.7 ms`). Sin parpadeos (0 de ≈ 4.000 capturas). **Sin medir en un Windows real** |
+| **Partidas de emuladores** (`.sav` de 32 KiB) y herramienta `PARTIDAS.bat` | El juego carga y recorta un `.sav` con relleno (probado con el juego compilado) y la herramienta pasa sus pruebas con PowerShell 7 en Linux. **Sin probar:** en un Windows real y con una partida jugada de verdad |
 | Rendimiento | ≈ 110–120 fotogramas/s sin ventana en un equipo de 2 núcleos (el juego pide 59,7) |
 | Audio | El juego genera sonido (comprobado: señal mezclada no silenciosa en un partido). **No se ha escuchado** (el entorno de pruebas no tiene tarjeta de sonido) |
 | Torneos completos, minijuegos, multijugador por cable | **Sin comprobar** |
@@ -48,7 +67,7 @@ descompresor del juego y los módulos de código de EWRAM.
 | | Tamaño |
 |---|---|
 | Descarga (Zig, CMake, Ninja, SDL2 y las fuentes) | ≈ 150 MB, una sola vez |
-| Espacio libre que hace falta **mientras se instala** | ≈ 1,5 GB (compilar genera ≈ 1 GB; se borra al terminar) |
+| Espacio libre que hace falta **mientras se instala** | ≈ 1,5 GB en **cualquier** unidad: normalmente `C:`, y si va justa se usa la del juego u otra con sitio (compilar genera ≈ 1 GB; se borra al terminar) |
 | **El juego instalado** | **≈ 55 MB** (incluye tu ROM de 16 MB) |
 | Este zip | unos 0,1 MB |
 
@@ -153,15 +172,119 @@ Desde cero, en el entorno de pruebas (2 núcleos), tarda unos 4 minutos.
 
 ## El menú de configuración
 
-Se abre cada vez al ejecutar el juego (marca «Skip launcher on boot» para
+Se abre cada vez al ejecutar el juego (marca «Saltar el lanzador al arrancar» para
 saltarlo). Recuerda la ROM y la configuración junto al ejecutable (`rom.cfg`,
 `config.ini`, `keybinds.ini`). Permite elegir mando o teclado y reasignar los
-botones, escala de la ventana, pantalla completa, filtro de imagen, relación de
-aspecto y volumen. El menú de recomp-ui solo está en inglés e italiano.
+botones, escala de la ventana, pantalla completa, filtro de imagen, modelo de
+pantalla (el filtro de color de la GBA), relación de aspecto y volumen. Tanto este menú
+como el del juego (Esc) están en **español** o en **inglés**, a tu elección: la fila
+**«Idioma del menú»** (Español / English) está en los ajustes de este menú (al final del
+panel de pantalla) y en el menú de Esc (sección Sistema, la última fila). Cambia al instante,
+se recuerda en `config.ini` (`[Menu]`, `Language`) y **solo afecta a los menús**: el idioma del
+juego se elige dentro del juego, como siempre. Sin elegir nada, el menú sale en español.
 
 Opciones de línea de órdenes útiles: `--no-launcher` (arrancar sin menú),
 `--launcher` (forzarlo), `--scale N`, `--fullscreen`, `--volume N`,
-`--stretch` y `--blur-bars` (modos de pantalla, abajo).
+`--stretch` y `--blur-bars` (modos de pantalla, abajo) y `--image-filter N` (filtro de
+imagen, abajo).
+
+### Atajos de teclado
+
+| Tecla | Qué hace |
+|---|---|
+| Flechas | Moverse |
+| **X** / **Z** | Botón A / botón B |
+| **C** / **V** | Botón L / botón R |
+| **Intro** | Start |
+| **Mayús derecho** | Select |
+| **Mayús + F1…F9** | **Guardar estado** en el hueco 1–9 |
+| **F1…F9** | **Cargar estado** de ese hueco |
+| **Tab** (mantener) | Avance rápido (turbo) |
+| **F12** / **Mayús + F12** | Siguiente / anterior **filtro de imagen**, en directo (el nombre sale unos segundos en el título y se guarda) |
+| **F10** | **Captura de pantalla** (PNG en la carpeta `capturas`) |
+| **Mayús + P** | Pausa |
+| **Alt + Intro** | Pantalla completa |
+| **F** | Fotogramas por segundo en el título de la ventana |
+| **Esc** | Menú del juego, en español (pantalla, filtro lineal, sonido, estados, salir) |
+| **1** / **2** (mantener) | Rebobinar / avance rápido de las herramientas de ayuda (también con los gatillos del mando) |
+
+Los estados (F1–F9) se guardan junto al juego como `roms/mario_tennis_power_tour_eur.state1`
+… `state9` y son **independientes de las partidas normales** (guardar dentro del juego, el
+`.sav`). Los atajos del sistema se pueden cambiar en `config.ini`, sección `[KeyMap]`
+(`Fullscreen`, `Pause`, `Turbo`, `WindowBigger`, `WindowSmaller`, `VolumeUp`, `VolumeDown`,
+`DisplayPerf`, `ImageFilterNext`, `ImageFilterPrev`, `Screenshot`); los botones del juego, en el menú de
+arranque o en `keybinds.ini`.
+
+### Capturas de pantalla (F10)
+
+**F10** guarda la imagen del juego (sin filtros, sin barras y sin menús) como PNG en la
+carpeta `capturas`, junto a `config.ini`: `MarioTennis_2026-11-12_10-30-00.png`. Se amplía
+con vecino más cercano hasta unos 720 píxeles de alto como mínimo (1200×800 en 3:2), con los
+píxeles nítidos, y pesa unos 70 KB. Funciona también con el juego en pausa; con el menú de Esc
+abierto no, ciérralo antes. El título de la ventana confirma «captura guardada». La tecla se
+cambia en `config.ini`, `[KeyMap]`, `Screenshot = F11` (por ejemplo). El desinstalador
+conserva esa carpeta si eliges conservar tus partidas.
+
+### Visor de capturas (en el menú)
+
+El botón **«Capturas»** de la cabecera del menú de arranque abre una rejilla con las capturas
+de la carpeta `capturas` (las 150 más recientes, la última primero; el nombre del archivo
+`MarioTennis_2026-11-14_17-32-05.png` se enseña como «14/11/2026  17:32:05»). Pulsa una para verla grande;
+desde ahí: **Anterior / Siguiente**, **Borrar** (pulsa dos veces: la primera lo arma y el botón
+pasa a «¿Borrar? Pulsa otra vez»), **Abrir carpeta** (abre `capturas` en el explorador) y
+**Cerrar** (vuelve a la rejilla). Las miniaturas se hacen al vuelo, de dos en dos y solo las que
+se ven, y se liberan al salir; una imagen que no se pueda leer sale con un aviso en lugar de
+romper el menú. Solo lee la carpeta `capturas` que
+hay junto a `config.ini`.
+
+### Aviso de versión nueva
+
+Al abrir el menú de arranque, el programa pide **una vez** y en segundo plano el archivo `VERSION`
+del repositorio (una petición `GET` por HTTPS de unos pocos bytes; no envía nada tuyo). Si el
+número es mayor que el instalado, sale una franja arriba con «Hay una versión nueva: 0.4.5 (tienes la 0.4.4)…» y un
+botón **Ocultar** (solo en la pantalla de inicio del menú). Es **solo un aviso**: no descarga ni instala nada; para actualizar descarga el
+zip nuevo y usa `ACTUALIZAR.bat` (ver arriba). Sin internet, con la dirección caída o con una
+respuesta que no sea un número de versión, simplemente no sale nada.
+
+En `config.ini`, sección `[Menu]`:
+
+```ini
+[Menu]
+CheckUpdates = 0                      ; desactiva la comprobación (por defecto 1)
+UpdateUrl = https://…/VERSION         ; otra dirección del archivo VERSION
+```
+
+La dirección por defecto se fija al compilar (`-DMTP_URL_VERSION=…`, por defecto el `VERSION` de la
+rama `main` de `MaErGa/MarioTennisPowerTourRecomp` en `raw.githubusercontent.com`); si publicas el
+proyecto con otro nombre o rama, cámbiala ahí o en `UpdateUrl`. Solo se aceptan direcciones
+`https://` (y `http://` hacia `127.0.0.1`/`localhost`, para pruebas). La variable de entorno
+`MTP_URL_VERSION` manda sobre `config.ini`.
+
+### Avance rápido (Tab)
+
+Mientras **mantienes pulsada la tecla Tab** el juego va más deprisa (sin sonido). El
+multiplicador máximo va de 2 a 10 (por defecto 4) y se cambia en `config.ini`, sección
+`[Launcher]`, `assist_fast_forward_multiplier`. La tecla se puede cambiar en la sección
+`[KeyMap]` (línea `Turbo`).
+
+Cómo funciona (0.3.3): los fotogramas que no se dibujan **ni siquiera se pintan por
+dentro** (es lo que más tiempo cuesta) y el programa no espera entre ellos. El juego va
+**todo lo rápido que permita tu equipo, hasta N veces la velocidad normal**, y las
+imágenes que se dibujan se reparten según lo que cueste dibujar en tu equipo (entre 60 y
+≈ 15 por segundo).
+
+**Mientras mantienes Tab, el título de la ventana muestra lo que está pasando**, por
+ejemplo `turbo x2.4 | 31 img/s | emu 4.1 ms | dib 9.7 ms`:
+
+- `x2.4`: velocidad real del juego respecto a la normal. Si pone `x4.0` (o tu multiplicador)
+  va al máximo permitido; sube el multiplicador en `config.ini` si quieres más.
+- `img/s`: imágenes dibujadas por segundo. **Es normal que baje** con turbo: se dibujan
+  menos imágenes precisamente para que el juego vaya más deprisa. El contador de la tecla
+  **F** muestra lo mismo (imágenes dibujadas, no velocidad del juego).
+- `emu`: milisegundos que cuesta emular un fotograma en tu equipo (el límite del turbo es
+  ≈ 16,7 ms ÷ `emu` veces la velocidad normal). `dib`: lo que cuesta dibujar una imagen más.
+
+Si el turbo no sube de `x1.0`–`x1.5`, abre un *issue* con una captura del título.
 
 ### Pantalla: 3:2, 16:9 estirado y 16:9 con barras difuminadas
 
@@ -183,17 +306,114 @@ solo dibuja 240 px de ancho y el juego no tiene contenido fuera de ellos; lo
 probado con la vista ampliada del framework solo da márgenes negros. Se
 descartó en lugar de ofrecer una opción que no aporta nada.
 
+### Filtros de imagen y color
+
+Hay **dos cosas independientes** que se pueden combinar, las dos en *Settings → Display*:
+
+**Texture filtering** (el filtro de imagen; se calcula por CPU sobre el fotograma ya
+terminado y no toca la emulación):
+
+| N | Filtro | Qué hace |
+|---|---|---|
+| 0 | Nearest | Píxeles cuadrados, sin suavizar |
+| 1 | Linear | Suavizado de la tarjeta gráfica (borroso al ampliar; es el único que **sí** emborrona a propósito) |
+| 2 | Sharp fractional | Amplía cada píxel un número entero de veces y deja el último ajuste a la tarjeta: nítido aunque la ventana no sea múltiplo de 240×160 |
+| 3 / 4 / 5 | Scale2x / Scale3x / Scale4x | Ampliadores de píxel-art (AdvMAME): suavizan diagonales y curvas sin emborronar el texto. El resultado se replica un número entero de veces más para que el ajuste final a la ventana sea mínimo y los bordes sigan nítidos |
+| 6 | HD smooth | Scale4x con un suavizado muy ligero (cada vecino pesa solo el 12,5 %): bordes redondeados y limpios, sin el aspecto de «foto desenfocada» |
+| 7 | LCD grid (GBA) | La rejilla de píxeles de la pantalla de la GBA original, dibujada **a la resolución de tu ventana** (rayas de 1 píxel nítidas), no sobre una imagen ampliada. Es el filtro más fácil de reconocer: una cuadrícula oscura entre los píxeles |
+| 8 | CRT scanlines | Líneas de barrido (centro del haz brillante, bordes más oscuros), también a la resolución de la ventana |
+
+**Cambiar de filtro sin reiniciar:** **F12** pasa al siguiente y **Mayús + F12** al anterior;
+el nombre aparece unos segundos en el título de la ventana (en pantalla completa no se ve
+el título, pero sí el efecto) y queda guardado en `config.ini` para la próxima vez. En el
+menú del juego (**Esc**) hay un interruptor «Linear filter»: activa el filtro 1 (Linear) o
+el 0 (Nearest); para los demás usa F12 o el menú de arranque.
+
+Qué esperar de cada uno a 3× (720×480): **7 y 8 se notan a primera vista** (cuadrícula y
+rayas). **3, 4, 5 y 6 son sutiles a propósito**: solo redondean diagonales y curvas, y en
+un juego con tanto color plano y tanto sprite grande la diferencia es pequeña; compáralos
+pulsando F12 con el 0. Si no ves **ninguna** diferencia entre el 0 y el 7, cuéntalo en una
+incidencia con el texto del título y el tamaño de ventana.
+
+La rejilla LCD y las líneas CRT oscurecen la imagen; el programa sube un poco el brillo de
+origen para compensarlo (hasta un 40 %). Se calculan **por CPU sobre la imagen final** (no
+usan mezclas de la tarjeta gráfica, así que se ven igual con OpenGL, Direct3D o el
+*renderer* por software). **Límites:** si la imagen en pantalla tiene menos de 2 píxeles
+de ventana por píxel del juego (ventana menor de 480×320) la rejilla/líneas no se dibujan,
+porque no se verían; por encima de 1920×1080 (1440p, 4K a pantalla completa…) se calculan
+a la mitad de resolución (o un tercio, etc.) y se estiran, con rayas de 2 píxeles o más.
+
+**Escalado de Windows (125 %, 150 %…):** desde la 0.4.0 el programa se declara consciente
+del DPI, así que Windows ya no estira la ventana y la rejilla y las líneas se ven nítidas.
+Para que la ventana no salga más pequeña, la escala que eliges se multiplica por el factor
+de Windows y se redondea a un entero que quepa en tu pantalla (escala 3 al 150 % → 4×; en el
+menú del juego, «Window scale» muestra el valor real). Si prefieres el comportamiento
+antiguo: variable de entorno `SDL_WINDOWS_DPI_AWARENESS=unaware`. Una captura de un Windows real
+(ventana a escala 6) confirmó que el programa es consciente del DPI y que el menú sale en español;
+también destapó que el panel del menú de Esc no crecía con el texto, corregido en la 0.4.2
+(comprobado simulando factores de 1,5 y 2,0, aún no en ese Windows). Si ves algo raro, cuéntalo.
+
+**Screen model** (el filtro de color de la GBA, que ya traía el framework): Raw, Unlit,
+Frontlit, Backlit o Classic simulan cómo se veían los colores en las distintas
+pantallas de la consola. Se combina con cualquiera de los filtros de arriba y con los
+tres modos de aspecto.
+
+También por línea de órdenes: `--image-filter N` (0 a 8); se guarda en `config.ini`
+(`image_filter` en `[Launcher]`). El programa lo pasa al runtime con la variable de
+entorno `GBARECOMP_FILTRO`.
+
+Lo que **no** hay:
+- **No se cargan *shaders* de RetroArch** (`.glsl`, `.glslp`): la presentación usa
+  `SDL_Renderer`, que no tiene cauce de *shaders*. Por eso los filtros van por CPU y
+  vienen incluidos.
+- **«HD» son ampliadores, no texturas nuevas.** No hay paquetes de texturas ni de texto
+  en alta resolución: el juego dibuja a 240×160 con fondos y *sprites*, y sustituirlos
+  exigiría un trabajo artístico que no existe. Lo que se consigue es que el texto y los
+  bordes se vean limpios al ampliar.
+
+### Partidas: compatibles con las de los emuladores
+
+El juego guarda en una **SRAM de 32 KiB**, y su archivo `.sav` es esa memoria tal cual
+(el mismo formato que mGBA, VisualBoyAdvance-M, RetroArch —que lo llama `.srm`—,
+BizHawk, no$gba y los flashcarts). Está junto a la ROM
+(`roms\mario_tennis_power_tour_eur.sav` dentro de la carpeta del juego).
+
+- **Traer una partida de un emulador:** copia su archivo `.sav` (o `.srm`) con ese nombre
+  sobre el de aquí, o usa **`PARTIDAS.bat`** (en el menú Inicio: *Partidas de Mario Tennis
+  Power Tour*), que lo hace guardando antes una copia de la tuya.
+- **Llevar tu partida a un emulador:** `PARTIDAS.bat` → *Exportar*. Para mGBA y VBA el
+  archivo debe llamarse como la ROM de ese emulador, pero con la extensión `.sav`
+  (RetroArch: `.srm`).
+- Si el archivo viene con **relleno o repetido hasta 64 o 128 KiB**, el juego lo recorta a
+  los 32 KiB reales al cargarlo, anota el aviso en la consola y deja una copia
+  `.sav.original`. Si lo que sobra son datos distintos (otro tipo de guardado u otro
+  juego), no lo toca y te avisa.
+- **Los estados rápidos de un emulador (*save states*) no se pueden importar:** son
+  volcados de la memoria de *ese* emulador. Usa la partida normal del juego. Este
+  programa tiene sus propios estados con **F1–F9** (formato propio, no intercambiable).
+- `PARTIDAS.bat` también hace **copias de seguridad** y las **restaura**. Antes de
+  importar comprueba el archivo: rechaza los estados rápidos, los archivos vacíos y los
+  que traen datos de otro tipo de guardado (Flash o EEPROM, u otro juego); completa con
+  `0xFF` los que midan menos de 32 KiB; avisa si la partida está en blanco; y siempre
+  te pide confirmar. Guarda antes una copia de tu partida actual y se niega a tocar nada
+  con el juego abierto (al cerrarse volvería a guardar la partida anterior).
+
+*No se ha probado en un Windows real.* Sí con PowerShell 7 en Linux (pruebas automáticas
+de importar, exportar, copias y restaurar), y el juego compilado cargó y recortó un `.sav`
+de 128 KiB con relleno. Lo que **no** se ha hecho es traer una partida jugada de verdad
+desde un emulador.
+
 ## Qué incluye y qué no
 
 | Incluido | Licencia |
 |---|---|
-| Configuración del recompilador (`game.toml`), host (`src/`), scripts | Tuya al publicarlo |
-| `parches/` (cambios a gbarecomp) | Los de gbarecomp: **PolyForm Noncommercial 1.0.0** |
+| Configuración del recompilador (`game.toml`), host (`src/`), scripts, pruebas y `parches/` | **PolyForm Noncommercial 1.0.0** (`LICENSE`): los parches son obras derivadas de gbarecomp y el juego que construyes lo enlaza |
 | BIOS libre `bios_libre/` | MIT (Cult-of-GBA); ver `bios_libre/LICENSE-Cult-of-GBA-BIOS.txt` |
 
 Ojo con la licencia: **gbarecomp es de uso no comercial** (PolyForm Noncommercial
-1.0.0) y el juego que construyes lo enlaza, así que este proyecto es solo para
-uso personal y sin ánimo de lucro. recomp-ui (el menú) es MIT.
+1.0.0), así que este proyecto es solo para uso personal y sin ánimo de lucro.
+recomp-ui (el menú) es MIT. La lista completa de licencias de lo que se descarga al
+construir está en [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 **No se incluye ni se debe subir** la ROM, el código generado a partir de ella
 (`generated/`), ni la carpeta `juego/`: derivan del juego de Nintendo. El
@@ -206,12 +426,21 @@ propio volcado.
 INSTALAR.bat           Windows: abre el instalador (elige ROM y carpeta), con doble clic
 ACTUALIZAR.bat         Windows: actualiza una instalación existente (la encuentra sola)
 icono.ico              (opcional, lo pones tú) icono de los accesos directos
+PARTIDAS.bat           Windows: importa/exporta partidas de emuladores y hace copias
 VERSION                Número de versión del proyecto (lo lee ACTUALIZAR)
+CHANGELOG.md           Qué cambia en cada versión
+LICENSE                PolyForm Noncommercial 1.0.0
+THIRD_PARTY_NOTICES.md Licencias de todo lo que se usa o se descarga
+CONTRIBUTING.md        Cómo colaborar (y lo que nunca se sube)
+SECURITY.md            Cómo avisar de un fallo de seguridad
+.github/               Plantillas de incidencias y de pull request, y la comprobación automática
 tools/INSTALAR.ps1     El instalador de PowerShell (ventana, método ligero + respaldo MSYS2, accesos)
 tools/ACTUALIZAR.ps1   El actualizador (detecta la instalación, compara, reinstala)
 tools/comun.ps1        Funciones compartidas (ROM, búsqueda de instalación, huella de versión)
 tools/construir.ps1    Compilación ligera de Windows: Zig + CMake + Ninja + SDL2, sin git ni MSYS2
 tools/DESINSTALAR.ps1  El desinstalador (se copia a la carpeta del juego)
+tools/PARTIDAS.ps1     Importar, exportar, copias y restaurar partidas (se copia a la carpeta del juego)
+tools/pruebas/         Pruebas automáticas: filtros de imagen, aviso de versión, partidas y sintaxis de los .ps1
 CONSTRUIR.bat          Windows: compila dentro de la carpeta del proyecto (método ligero)
 CONSTRUIR-MSYS2.bat    Windows: lo mismo con el método clásico (MSYS2)
 tools/construir.sh     Compilación en Linux (y la del método clásico en Windows)
@@ -221,11 +450,29 @@ tools/JUGAR.bat, jugar.sh  Lanzadores que se copian a juego/
 game.toml              Configuración del recompilador y del runtime
 src/main.cpp           Host: ganchos de RAM, identidad del cartucho, modos de pantalla
 src/game_launcher_boot.*   Puente con el menú de arranque (recomp-ui)
+src/aviso_actualizacion.cpp   Aviso de «hay una versión nueva» del menú (comprueba VERSION en segundo plano)
 parches/               Cambios mínimos a gbarecomp (se aplican solos)
 bios_libre/            BIOS libre (MIT) y su configuración
 docs/ESTADO.md         Estado detallado y hallazgos (leer al retomar)
 docs/NOTAS_TECNICAS.md Cómo funciona por dentro
 ```
+
+## Pruebas
+
+No necesitan la ROM. Los filtros se prueban sobre una copia de gbarecomp con los parches
+aplicados, y la herramienta de partidas con PowerShell 7:
+
+```sh
+python3 tools/aplicar_parches.py <carpeta de gbarecomp>     # el commit de tools/construir.sh
+tools/pruebas/probar_filtros.sh <carpeta de gbarecomp>
+tools/pruebas/probar_aviso.sh                               # el aviso de versión, contra un servidor local
+pwsh tools/pruebas/probar_partidas.ps1
+pwsh tools/pruebas/comprobar_sintaxis.ps1
+```
+
+GitHub Actions (`.github/workflows/comprobar.yml`) ejecuta todo eso, y las pruebas de
+partidas también en Windows PowerShell 5.1 (esa parte no bloquea: se escribió sin poder
+ejecutarla en un Windows real).
 
 ## Cómo mejorarlo
 

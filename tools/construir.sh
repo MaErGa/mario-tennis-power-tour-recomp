@@ -101,8 +101,9 @@ traer gbarecomp "$GBARECOMP_URL" "$GBARECOMP_COMMIT"
 traer recomp-ui "$RECOMP_UI_URL" "$RECOMP_UI_COMMIT"
 
 # ── 3. Parches al framework (idempotentes) ─────────────────────────────────
-paso "Aplicando los parches de parches/ a gbarecomp"
+paso "Aplicando los parches de parches/ a gbarecomp y a recomp-ui"
 python3 -I "$RAIZ/tools/aplicar_parches.py" "$EXTERNO/gbarecomp"
+python3 -I "$RAIZ/tools/aplicar_parches.py" "$EXTERNO/recomp-ui"
 
 # ── 4. Recompilador, BIOS libre y tu ROM ───────────────────────────────────
 paso "Compilando el recompilador (gba_recompile)"

@@ -302,20 +302,27 @@ $ninja = Unir $Herramientas 'ninja/ninja.exe'
 # 3. Fuentes ────────────────────────────────────────────────────────────────
 Escribir-Paso '3/7 Descargando las fuentes de gbarecomp, toml++ y recomp-ui (unos 10 MB)'
 $carpetaParches = Unir $Raiz 'parches'
+# Los parches de cada proyecto se llaman como él: gbarecomp-*.patch y recomp-ui-*.patch.
 $parches = @(Get-ChildItem -LiteralPath $carpetaParches -Filter 'gbarecomp-*.patch' -File | Sort-Object Name)
 if ($parches.Count -eq 0) { Fallo "No hay parches en $carpetaParches" }
+$parchesUi = @(Get-ChildItem -LiteralPath $carpetaParches -Filter 'recomp-ui-*.patch' -File | Sort-Object Name)
 $huellaParches = Sha256-Texto (($parches | ForEach-Object { $_.Name + ':' + (Sha256-De $_.FullName) }) -join ';')
+$huellaParchesUi = Sha256-Texto (($parchesUi | ForEach-Object { $_.Name + ':' + (Sha256-De $_.FullName) }) -join ';')
 $gbarecomp = Unir $Raiz 'externo/gbarecomp'
 $recompUi  = Unir $Raiz 'externo/recomp-ui'
 $marcaParches = Unir $gbarecomp '.mtp-parches'
+$marcaParchesUi = Unir $recompUi '.mtp-parches'
 foreach ($f in $Fuentes) {
     $destino = Unir $Raiz $f.Destino
     $marca = Unir $destino '.mtp-commit'
     $vigente = (Test-Path -LiteralPath $marca) -and ((Get-Content -LiteralPath $marca -Raw).Trim() -eq $f.Commit)
     # Si los parches han cambiado desde que se aplicaron, se parte de las fuentes limpias.
-    if ($vigente -and $f.Nombre -eq 'gbarecomp' -and (Test-Path -LiteralPath $marcaParches) -and
-        ((Get-Content -LiteralPath $marcaParches -Raw).Trim() -ne $huellaParches)) {
-        Escribir-Info 'Los parches han cambiado: vuelvo a extraer gbarecomp limpio.'
+    $marcaPropia = $null; $huellaPropia = $null
+    if ($f.Nombre -eq 'gbarecomp') { $marcaPropia = $marcaParches; $huellaPropia = $huellaParches }
+    if ($f.Nombre -eq 'recomp-ui') { $marcaPropia = $marcaParchesUi; $huellaPropia = $huellaParchesUi }
+    if ($vigente -and $marcaPropia -and (Test-Path -LiteralPath $marcaPropia) -and
+        ((Get-Content -LiteralPath $marcaPropia -Raw).Trim() -ne $huellaPropia)) {
+        Escribir-Info "Los parches han cambiado: vuelvo a extraer $($f.Nombre) limpio."
         $vigente = $false
     }
     if ($vigente) {
@@ -335,7 +342,7 @@ foreach ($f in $Fuentes) {
 # arm-recomp-core ya no existe y se repite (el orden de $Fuentes lo garantiza).
 
 # 4. Parches ────────────────────────────────────────────────────────────────
-Escribir-Paso '4/7 Aplicando los parches de parches/ a gbarecomp'
+Escribir-Paso '4/7 Aplicando los parches de parches/ a gbarecomp y a recomp-ui'
 $Latin1 = [System.Text.Encoding]::GetEncoding(28591)   # 1 byte = 1 carácter: no toca la codificación de los archivos
 
 function Analizar-Parche([string]$texto) {
@@ -418,7 +425,7 @@ function Aplicar-ParcheArchivo([string]$raizFuentes, $archivo) {
             # ¿Ya estaba aplicado este bloque?
             $yaEsta = Buscar-Secuencia $lineas ([string[]]$nuevo.ToArray()) $esperada
             if ($yaEsta -ge 0) { continue }
-            Fallo "El parche no encaja en $($archivo.Archivo) (bloque que empieza en la línea $($h.ViejoIni)). ¿Es la versión de gbarecomp que toca?"
+            Fallo "El parche no encaja en $($archivo.Archivo) (bloque que empieza en la línea $($h.ViejoIni)). ¿Es la versión que toca del proyecto?"
         }
         $conCr = $lineas[$pos].EndsWith("`r")
         $reemplazo = New-Object System.Collections.ArrayList
@@ -434,18 +441,23 @@ function Aplicar-ParcheArchivo([string]$raizFuentes, $archivo) {
     return $hechos
 }
 
-if ((Test-Path -LiteralPath $marcaParches) -and ((Get-Content -LiteralPath $marcaParches -Raw).Trim() -eq $huellaParches)) {
-    Escribir-Ok 'Los parches ya estaban aplicados.'
-} else {
-    foreach ($p in $parches) {
-        $archivos = Analizar-Parche ($Latin1.GetString([System.IO.File]::ReadAllBytes($p.FullName)))
+function Aplicar-ParchesDe([string]$nombre, [string]$raizFuentes, $lista, [string]$marca, [string]$huella) {
+    if ($lista.Count -eq 0) { return }
+    if ((Test-Path -LiteralPath $marca) -and ((Get-Content -LiteralPath $marca -Raw).Trim() -eq $huella)) {
+        Escribir-Ok "Los parches de $nombre ya estaban aplicados."
+        return
+    }
+    foreach ($p in $lista) {
+        $archivos = @(Analizar-Parche ($Latin1.GetString([System.IO.File]::ReadAllBytes($p.FullName))))
         $bloques = 0
-        foreach ($a in $archivos) { $bloques += (Aplicar-ParcheArchivo $gbarecomp $a) }
+        foreach ($a in $archivos) { $bloques += (Aplicar-ParcheArchivo $raizFuentes $a) }
         Escribir-Info ("{0}: {1} archivo(s), {2} bloque(s) aplicados" -f $p.Name, $archivos.Count, $bloques)
     }
-    Set-Content -LiteralPath $marcaParches -Value $huellaParches -Encoding ASCII
-    Escribir-Ok 'Parches aplicados.'
+    Set-Content -LiteralPath $marca -Value $huella -Encoding ASCII
+    Escribir-Ok "Parches de $nombre aplicados."
 }
+Aplicar-ParchesDe 'gbarecomp' $gbarecomp $parches $marcaParches $huellaParches
+Aplicar-ParchesDe 'recomp-ui' $recompUi $parchesUi $marcaParchesUi $huellaParchesUi
 
 # 5. Compilador ─────────────────────────────────────────────────────────────
 Escribir-Paso '5/7 Preparando el compilador'

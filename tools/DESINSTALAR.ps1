@@ -12,7 +12,8 @@
     No pregunta nada. Borra todo salvo que se pase -ConservarPartidas.
 
 .PARAMETER ConservarPartidas
-    Deja los archivos .sav (partidas), config.ini y keybinds.ini.
+    Deja los archivos .sav (partidas), config.ini, keybinds.ini y la carpeta capturas
+    (tus capturas de pantalla).
 
 .PARAMETER PruebaSeca
     Solo para probar: no toca el registro de Windows ni espera para borrarse a sí mismo.
@@ -84,7 +85,7 @@ try {
             return
         }
         if (-not $ConservarPartidas) {
-            $ConservarPartidas = Preguntar-SiNo "¿Quieres conservar tus partidas guardadas y tus ajustes (archivos .sav, config.ini, keybinds.ini)?`n`n(Si más adelante vuelves a instalar el juego en esta carpeta, las recuperarás.)" $true
+            $ConservarPartidas = Preguntar-SiNo "¿Quieres conservar tus partidas guardadas y tus ajustes (archivos .sav y sus copias de seguridad, config.ini, keybinds.ini y la carpeta capturas)?`n`n(Si más adelante vuelves a instalar el juego en esta carpeta, las recuperarás.)" $true
         }
     }
 
@@ -108,10 +109,12 @@ try {
     # Archivos: todo menos este script (y, si se piden, las partidas y los ajustes).
     $yo = $MyInvocation.MyCommand.Path
     $conservados = 0
+    $carpetaCapturas = (Join-Path $carpeta 'capturas').TrimEnd('\', '/')
     Get-ChildItem -LiteralPath $carpeta -Force -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.FullName -ieq $yo) { return }
         $guardar = $ConservarPartidas -and (
-            $_.Extension -ieq '.sav' -or
+            $_.Extension -ieq '.sav' -or $_.Name -like '*.sav.*' -or
+            $_.DirectoryName.TrimEnd('\', '/') -ieq $carpetaCapturas -or
             ($_.DirectoryName.TrimEnd('\', '/') -ieq $carpeta.TrimEnd('\', '/') -and $_.Name -in @('config.ini', 'keybinds.ini', 'instalacion.json')))
         if ($guardar) { $conservados++; return }
         Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue
@@ -137,7 +140,7 @@ try {
     }
 
     $final = "$NombreJuego se ha desinstalado."
-    if ($conservados -gt 0) { $final += " Se han conservado tus partidas y ajustes en:`n$carpeta" }
+    if ($conservados -gt 0) { $final += " Se han conservado tus partidas, ajustes y capturas en:`n$carpeta" }
     if ($m.obra) { $final += "`n(MSYS2 no se ha tocado; puedes quitarlo desde «Aplicaciones» si ya no lo necesitas.)" }
     Avisar $final
     exit 0

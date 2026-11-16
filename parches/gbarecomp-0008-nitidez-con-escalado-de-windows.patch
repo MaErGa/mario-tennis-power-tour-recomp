@@ -1,0 +1,84 @@
+diff --git a/src/runtime/host_window.cpp b/src/runtime/host_window.cpp
+index 892358d..0dbd84c 100644
+--- a/src/runtime/host_window.cpp
++++ b/src/runtime/host_window.cpp
+@@ -1738,6 +1738,11 @@ void gba_audio_callback(void* userdata, Uint8* stream, int len) {
+     }
+ }
+ 
++// PARCHE mario-tennis (DPI): factor de escala de Windows (1,0 = 100 %, 1,5 = 150 %) con el
++// que se ha dimensionado la ventana. Solo es > 1 si el proceso es consciente del DPI;
++// si no, Windows ya estira la imagen y no hay nada que corregir.
++static float g_mtp_factor_dpi = 1.0f;
++
+ #if defined(GBARECOMP_RUNTIME_UI)
+ bool runtime_imgui_init(Backend* b) {
+     IMGUI_CHECKVERSION();
+@@ -1752,6 +1757,10 @@ bool runtime_imgui_init(Backend* b) {
+     ImGui::GetStyle().ScaleAllSizes(1.75f);
+     ImGui::GetStyle().TouchExtraPadding = ImVec2(5.0f, 5.0f);
+ #endif
++    if (g_mtp_factor_dpi > 1.05f) {   // PARCHE mario-tennis (DPI): menú con el mismo tamaño aparente
++        io.FontGlobalScale = g_mtp_factor_dpi;
++        ImGui::GetStyle().ScaleAllSizes(g_mtp_factor_dpi);
++    }
+ 
+     if (!ImGui_ImplSDL2_InitForSDLRenderer(b->window, b->renderer)) {
+         std::fprintf(stderr,
+@@ -2277,6 +2286,47 @@ HostWindow::~HostWindow() {
+ 
+ bool HostWindow::is_available() { return true; }
+ 
++// PARCHE mario-tennis (DPI): con el proceso consciente del DPI, Windows no estira la imagen
++// (nítida), pero la ventana mide píxeles reales y se vería más pequeña al 125 % o 150 %.
++// Se devuelve la escala entera que mantiene el tamaño aparente (la imagen sigue en
++// múltiplos enteros: píxeles limpios), recortada para que quepa en el escritorio.
++// MTP_FACTOR_DPI=1.5 fuerza el factor (pruebas en cualquier sistema).
++static int mtp_escala_por_dpi(int escala, int base_w, int base_h) {
++    float f = 1.0f;
++    if (const char* forzado = std::getenv("MTP_FACTOR_DPI")) {
++        f = static_cast<float>(std::atof(forzado));
++    }
++#if defined(_WIN32)
++    else {
++        const char* conciencia = SDL_GetHint(SDL_HINT_WINDOWS_DPI_AWARENESS);
++        const bool consciente = conciencia && *conciencia &&
++                                std::strcmp(conciencia, "unaware") != 0 &&
++                                std::strcmp(conciencia, "0") != 0;
++        float ddpi = 0.0f;
++        if (consciente && SDL_GetDisplayDPI(0, &ddpi, nullptr, nullptr) == 0 && ddpi > 0.0f)
++            f = ddpi / 96.0f;
++    }
++#endif
++    if (!(f > 1.05f)) return escala;
++    if (f > 4.0f) f = 4.0f;
++    g_mtp_factor_dpi = f;
++    int nueva = static_cast<int>(std::floor(escala * f + 0.4f));
++    if (nueva < escala) nueva = escala;
++    SDL_Rect util;
++    if (SDL_GetDisplayUsableBounds(0, &util) == 0 && util.w > 0 && util.h > 0) {
++        const int margen_titulo = static_cast<int>(40.0f * f);   // barra de título y bordes
++        while (nueva > escala) {
++            const int alto = base_h * nueva;
++            const int ancho = mtp_modo_ventana() != 0 ? (alto * 16 / 9) : base_w * nueva;
++            if (ancho <= util.w && alto + margen_titulo <= util.h) break;
++            --nueva;
++        }
++    }
++    std::fprintf(stderr, "host_window: escala de Windows %.2f -> ventana x%d (pedida x%d)\n",
++                 static_cast<double>(f), nueva, escala);
++    return nueva;
++}
++
+ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
+                       const char* screen, bool linear_filter, bool sharp_filter,
+                       bool resize_driven_view,
+@@ -2293,6 +2343,8 @@ bool HostWindow::open(int scale, int base_w, int base_h, const char* title,
+             return false;
+         }
+     }
++    scale = mtp_escala_por_dpi(scale, base_w, base_h);   // PARCHE mario-tennis (DPI)
++
+     if (SDL_WasInit(SDL_INIT_AUDIO) == 0) {
+         // Non-fatal if audio fails — keep video working.
+         if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {

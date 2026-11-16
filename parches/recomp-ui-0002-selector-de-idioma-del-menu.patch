@@ -1,0 +1,289 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index e3cc81c..af407d9 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -1970,6 +1970,19 @@ void row_fullscreen(LauncherModel* m, const LauncherTheme& th) {
+                               kFullscreenChoices, 3, m->s.fullscreen));
+ }
+ 
++/* PARCHE mario-tennis: idioma de los menús (no del juego). Cada idioma se muestra con su
++ * propio nombre, sin traducir, para que se encuentre aunque el menú esté en otro idioma. */
++static const SettingsChoice kMenuLanguageChoices[] = {
++    {0, "Espa\xc3\xb1ol"}, {1, "English"}
++};
++
++void row_menu_language(const LauncherTheme& th) {
++    const int actual = launcher_i18n_menu_language();
++    const int elegido = settings_combo_row("Menu language", th, "##menu_language",
++                                           kMenuLanguageChoices, 2, actual);
++    if (elegido != actual) launcher_i18n_set_menu_language(elegido);
++}
++
+ void row_run_ahead(LauncherModel* m, const LauncherTheme& th) {
+     launcher_model_set_run_ahead(
+         m, settings_combo_row("Run-ahead", th, "##run_ahead", kRunAheadChoices,
+@@ -4037,6 +4050,7 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
+                                });
+             }
+         }
++        row_menu_language(th);   // PARCHE mario-tennis
+         return;
+     }
+ 
+@@ -4444,6 +4458,8 @@ void draw_display_controls(LauncherModel* m, const LauncherTheme& th) {
+         ImGui::TextColored(col(th.text_muted), "%s", elided);
+         if (ImGui::IsItemHovered() && dir[0]) ImGui::SetTooltip("%s", dir);
+     }
++
++    row_menu_language(th);   // PARCHE mario-tennis
+ }
+ 
+ // Video/Display module (docs/ARCHITECTURE.md): base window-scale/fullscreen
+diff --git a/src/common/backends/imgui/runtime_ui_imgui.cpp b/src/common/backends/imgui/runtime_ui_imgui.cpp
+index 397b209..8875ab8 100644
+--- a/src/common/backends/imgui/runtime_ui_imgui.cpp
++++ b/src/common/backends/imgui/runtime_ui_imgui.cpp
+@@ -152,6 +152,15 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
+             ui->row_index = index;
+             ui->in_section = 1;
+         }
++        /* PARCHE mario-tennis: con el teclado la fila elegida puede quedar cortada por
++         * abajo o por arriba; se desplaza lo justo para que se vea entera. */
++        if (selected) {
++            const ImDrawList *marco = ImGui::GetWindowDrawList();
++            if (ImGui::GetItemRectMax().y > marco->GetClipRectMax().y)
++                ImGui::SetScrollHereY(1.0f);
++            else if (ImGui::GetItemRectMin().y < marco->GetClipRectMin().y)
++                ImGui::SetScrollHereY(0.0f);
++        }
+ 
+         ImDrawList *draw = ImGui::GetWindowDrawList();
+         const ImVec2 end = ImGui::GetItemRectMax();
+diff --git a/src/common/launcher_i18n.cpp b/src/common/launcher_i18n.cpp
+index 525f6e4..14bfe08 100644
+--- a/src/common/launcher_i18n.cpp
++++ b/src/common/launcher_i18n.cpp
+@@ -1,5 +1,8 @@
+ #include "launcher_i18n.h"
++#include "launcher_ini.h"
+ 
++#include <cctype>
++#include <cstdio>
+ #include <cstdlib>
+ #include <cstring>
+ 
+@@ -405,6 +408,8 @@ static const LauncherI18nEntry kSpanish[] = {
+     {"Sample rate", "Frecuencia de muestreo"},
+     {"Output device", "Dispositivo de salida"},
+     {"Language", "Idioma"},
++    {"Menu language", "Idioma del menú"},
++    {"Menus only, not the game.", "Solo los menús, no el juego."},
+     {"(system default)", "(el del sistema)"},
+     {"BIOS", "BIOS"},
+     {"Retail GBA BIOS required", "Hace falta la BIOS original de GBA"},
+@@ -489,13 +494,81 @@ static const char* lookup(const LauncherI18nEntry* entries, int count,
+     return english;
+ }
+ 
++// ---- Idioma elegido por la persona (PARCHE mario-tennis) ------------------------
++// Orden de prioridad: variable de entorno MTP_IDIOMA_MENU (pruebas) > lo elegido en el
++// selector «Idioma del menú» (config.ini, [Menu] Language = es|en) > el de compilación.
++static char g_idioma_elegido[8] = "";   // «es» o «en»; vacío = aún sin elegir
++static bool g_config_leida = false;
++
++static const char* ruta_config(void) {
++    const char* ruta = std::getenv("MTP_CONFIG_INI");
++    return (ruta && ruta[0]) ? ruta : "config.ini";
++}
++
++static bool igual_sin_mayusculas(const char* a, const char* b) {
++    while (*a && *b && std::tolower((unsigned char)*a) == std::tolower((unsigned char)*b)) {
++        ++a; ++b;
++    }
++    return *a == *b;
++}
++
++static char* recortar(char* texto) {
++    while (*texto && std::isspace((unsigned char)*texto)) ++texto;
++    size_t n = std::strlen(texto);
++    while (n && std::isspace((unsigned char)texto[n - 1])) texto[--n] = '\0';
++    return texto;
++}
++
++static void leer_idioma_de_config(void) {
++    g_config_leida = true;
++    FILE* f = std::fopen(ruta_config(), "rb");
++    if (!f) return;
++    char linea[512];
++    bool en_menu = false;
++    while (std::fgets(linea, sizeof(linea), f)) {
++        char* s = recortar(linea);
++        if (!*s || *s == '#' || *s == ';') continue;
++        if (*s == '[') {
++            char* cierre = std::strchr(s, ']');
++            if (cierre) *cierre = '\0';
++            en_menu = igual_sin_mayusculas(s + 1, "Menu");
++            continue;
++        }
++        if (!en_menu) continue;
++        char* igual = std::strchr(s, '=');
++        if (!igual) continue;
++        *igual = '\0';
++        if (!igual_sin_mayusculas(recortar(s), "Language")) continue;
++        const char* valor = recortar(igual + 1);
++        if (igual_sin_mayusculas(valor, "es")) std::strcpy(g_idioma_elegido, "es");
++        else if (igual_sin_mayusculas(valor, "en")) std::strcpy(g_idioma_elegido, "en");
++    }
++    std::fclose(f);
++}
++
+ const char* launcher_i18n_language(void) {
+     // MTP_IDIOMA_MENU=en|es fuerza el idioma sin recompilar (pruebas).
+     const char* forzado = std::getenv("MTP_IDIOMA_MENU");
+     if (forzado && forzado[0]) return forzado;
++    if (!g_config_leida) leer_idioma_de_config();
++    if (g_idioma_elegido[0]) return g_idioma_elegido;
+     return RECOMP_UI_LANGUAGE;
+ }
+ 
++int launcher_i18n_menu_language(void) {
++    const char* idioma = launcher_i18n_language();
++    return (idioma && (std::strcmp(idioma, "es") == 0 ||
++                       std::strncmp(idioma, "es-", 3) == 0)) ? 0 : 1;
++}
++
++void launcher_i18n_set_menu_language(int index) {
++    const char* nuevo = index == 0 ? "es" : "en";
++    if (std::strcmp(g_idioma_elegido, nuevo) == 0) return;
++    g_config_leida = true;
++    std::strcpy(g_idioma_elegido, nuevo);
++    launcher_ini_kv_write(ruta_config(), "Menu", "Language", nuevo);
++}
++
+ const char* launcher_i18n_text(const char* english) {
+     const char* language = launcher_i18n_language();
+     if (!language || language[0] == '\0' ||
+diff --git a/src/common/launcher_i18n.h b/src/common/launcher_i18n.h
+index 4f8c2f1..addc3fc 100644
+--- a/src/common/launcher_i18n.h
++++ b/src/common/launcher_i18n.h
+@@ -1,4 +1,18 @@
+ #pragma once
+ 
++#ifdef __cplusplus
++extern "C" {
++#endif
++
+ const char* launcher_i18n_language(void);
+ const char* launcher_i18n_text(const char* english);
++
++/* PARCHE mario-tennis: idioma del menú elegido por la persona (solo menús, no el juego).
++ * 0 = español, 1 = inglés. El valor se guarda en config.ini, sección [Menu], clave
++ * Language (la ruta sale de la variable de entorno MTP_CONFIG_INI). */
++int launcher_i18n_menu_language(void);
++void launcher_i18n_set_menu_language(int index);
++
++#ifdef __cplusplus
++}
++#endif
+diff --git a/src/common/recomp_runtime_settings.c b/src/common/recomp_runtime_settings.c
+index 5358de4..f7cbf9b 100644
+--- a/src/common/recomp_runtime_settings.c
++++ b/src/common/recomp_runtime_settings.c
+@@ -7,6 +7,8 @@ static const char *const kFullscreenChoices[] = {
+     "Windowed", "Borderless", "Exclusive"
+ };
+ static const char *const kTextureFilterChoices[] = { "Nearest", "Linear" };
++/* PARCHE mario-tennis: cada idioma se muestra con su propio nombre (no se traduce). */
++static const char *const kMenuLanguageChoices[] = { "Espa\xc3\xb1ol", "English" };  /* UTF-8 */
+ /* Order matches RECOMP_LAUNCHER_FMV_FILTER_* minus one (choice indices are
+  * 0-based), least -> most smoothing. */
+ static const char *const kFmvFilterChoices[] = {
+@@ -47,7 +49,7 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
+     for (unsigned bit = 0; bit < 64; ++bit)
+         if (f & (UINT64_C(1) << bit)) ++standard_count;
+     if (has(f, RECOMP_RUNTIME_UI_STANDARD_MENU_BACKDROP)) ++standard_count;  /* two rows */
+-    size_t total = standard_count + standard->extra_item_count;
++    size_t total = standard_count + standard->extra_item_count + 1;  /* +1: idioma del menú */
+     if (!total) return NULL;
+ 
+     RecompRuntimeUiItem *items = (RecompRuntimeUiItem *)calloc(total, sizeof(*items));
+@@ -203,6 +205,11 @@ RecompRuntimeUi *recomp_runtime_ui_create_standard(
+         count += standard->extra_item_count;
+     }
+ 
++    /* PARCHE mario-tennis: selector del idioma del menú (no del juego), al final de «System». */
++    add_item(items, &count, RECOMP_RUNTIME_UI_KEY_MENU_LANGUAGE, "System",
++             "Menu language", "Menus only, not the game.",
++             RECOMP_RUNTIME_UI_CHOICE, 0, 1, 1, kMenuLanguageChoices, 2, NULL);
++
+     RecompRuntimeUiConfig menu = standard->menu;
+     menu.items = items;
+     menu.item_count = count;
+diff --git a/src/common/recomp_runtime_ui.c b/src/common/recomp_runtime_ui.c
+index 3d87393..3283da4 100644
+--- a/src/common/recomp_runtime_ui.c
++++ b/src/common/recomp_runtime_ui.c
+@@ -1,5 +1,6 @@
+ #include "recomp_runtime_ui_internal.h"
+ #include "launcher_theme.h"
++#include "launcher_i18n.h"
+ 
+ #include <stdio.h>
+ #include <stdlib.h>
+@@ -266,9 +267,19 @@ static size_t wrap_index(size_t current, int delta, size_t count) {
+     return current + 1 >= count ? 0 : current + 1;
+ }
+ 
++/* PARCHE mario-tennis: la fila del idioma del menú la gestiona el propio menú. */
++static int is_menu_language(const RecompRuntimeUiItem *item) {
++    return item && item->key &&
++           strcmp(item->key, RECOMP_RUNTIME_UI_KEY_MENU_LANGUAGE) == 0;
++}
++
+ int recomp_runtime_ui_current_value(RecompRuntimeUi *ui,
+                                     const RecompRuntimeUiItem *item,
+                                     int *value) {
++    if (value && is_menu_language(item)) {
++        *value = launcher_i18n_menu_language();
++        return 1;
++    }
+     if (!ui->config.callbacks.get_value || !value) return 0;
+     return ui->config.callbacks.get_value(ui->config.callbacks.context,
+                                           item, value) != 0;
+@@ -320,7 +331,7 @@ void recomp_runtime_ui_adjust_current(RecompRuntimeUi *ui, int direction,
+         ui->editing_text = 1;
+         return;
+     }
+-    if (!ui->config.callbacks.set_value) return;
++    if (!ui->config.callbacks.set_value && !is_menu_language(item)) return;
+     int value = 0;
+     if (!recomp_runtime_ui_current_value(ui, item, &value)) return;
+     int next = value;
+@@ -347,6 +358,11 @@ void recomp_runtime_ui_adjust_current(RecompRuntimeUi *ui, int direction,
+         if (next < item->minimum) next = item->minimum;
+         if (next > item->maximum) next = item->maximum;
+     }
++    if (next != value && is_menu_language(item)) {
++        launcher_i18n_set_menu_language(next);
++        accepted_change(ui, "Saved");
++        return;
++    }
+     if (next != value && ui->config.callbacks.set_value(
+             ui->config.callbacks.context, item, next))
+         accepted_change(ui, "Saved");
+diff --git a/src/common/recomp_runtime_ui_internal.h b/src/common/recomp_runtime_ui_internal.h
+index 55bd754..a684314 100644
+--- a/src/common/recomp_runtime_ui_internal.h
++++ b/src/common/recomp_runtime_ui_internal.h
+@@ -16,6 +16,10 @@ extern "C" {
+  */
+ #define RECOMP_RUNTIME_UI_MAX_DEPTH 8
+ 
++/* PARCHE mario-tennis: fila «Idioma del menú» (0 = español, 1 = inglés). La resuelve el
++ * propio menú (launcher_i18n.cpp), sin pasar por las funciones del anfitrión. */
++#define RECOMP_RUNTIME_UI_KEY_MENU_LANGUAGE "menu.language"
++
+ struct RecompRuntimeUi {
+     RecompRuntimeUiConfig config;
+     const char **sections;      /* first path components, owned copies */

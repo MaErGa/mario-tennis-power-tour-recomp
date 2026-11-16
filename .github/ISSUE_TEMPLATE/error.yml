@@ -1,0 +1,80 @@
+name: Error
+description: Algo no funciona (el instalador, el juego, un filtro, las partidas...)
+title: "[Error] "
+labels: ["error"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Gracias por avisar. **No adjuntes nunca la ROM, la BIOS de Nintendo ni archivos
+        generados a partir de ellas**: se cerrará la incidencia. Una captura de pantalla
+        para explicar el fallo sí está bien.
+  - type: input
+    id: version
+    attributes:
+      label: Versión del proyecto
+      description: Está en el archivo `VERSION` (por ejemplo, 0.4.4).
+    validations:
+      required: true
+  - type: dropdown
+    id: sistema
+    attributes:
+      label: Sistema
+      options:
+        - Windows 11
+        - Windows 10
+        - Linux
+        - Otro
+    validations:
+      required: true
+  - type: dropdown
+    id: metodo
+    attributes:
+      label: Cómo lo instalaste
+      options:
+        - INSTALAR.bat (método ligero, el de por defecto)
+        - INSTALAR.bat (método MSYS2, el de respaldo)
+        - CONSTRUIR.bat / CONSTRUIR-MSYS2.bat
+        - tools/construir.sh (Linux)
+        - No llegué a instalarlo
+    validations:
+      required: true
+  - type: dropdown
+    id: donde
+    attributes:
+      label: Dónde falla
+      options:
+        - El instalador o el actualizador
+        - El menú de arranque
+        - El juego (gráficos, sonido, cuelgues)
+        - Los filtros de imagen o la relación de aspecto
+        - Las partidas (importar, exportar, copias)
+        - Otra cosa
+    validations:
+      required: true
+  - type: textarea
+    id: que-pasa
+    attributes:
+      label: Qué ocurre y qué esperabas que ocurriera
+    validations:
+      required: true
+  - type: textarea
+    id: pasos
+    attributes:
+      label: Pasos para reproducirlo
+      description: Si es del juego, di la pantalla, el idioma, el filtro y la relación de aspecto que tenías.
+  - type: textarea
+    id: registro
+    attributes:
+      label: Registro
+      description: |
+        Si falla el instalador o el actualizador, pega aquí el contenido de
+        `%TEMP%\mario-tennis-instalador.log`. Si falla el juego, la salida de la consola.
+      render: text
+  - type: checkboxes
+    id: reglas
+    attributes:
+      label: Antes de enviar
+      options:
+        - label: No he adjuntado la ROM, la BIOS de Nintendo ni código generado a partir de ellas.
+          required: true

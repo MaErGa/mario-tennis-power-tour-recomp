@@ -1,0 +1,112 @@
+name: Comprobar
+
+# Comprobaciones que no necesitan la ROM: sintaxis de los scripts, que los parches
+# encajan en el gbarecomp y el recomp-ui fijados y las pruebas de los filtros y de las partidas.
+# (Compilar el juego entero necesita la ROM, que nunca se sube, así que no se hace aquí.)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Tiene que ser el mismo commit que GBARECOMP_COMMIT en tools/construir.sh y
+  # tools/construir.ps1.
+  GBARECOMP_COMMIT: edc2b80c73d83a2f35b9cfedaea0ea8d14647697
+  # Ídem para RECOMP_UI_COMMIT (el menú de configuración).
+  RECOMP_UI_COMMIT: 0546fbcb0126bb14bf88d2128b4fe8a4229570a3
+
+jobs:
+  linux:
+    name: Linux (sintaxis, parches y pruebas)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Descargar el proyecto
+        uses: actions/checkout@v4
+
+      - name: Descargar gbarecomp en el commit fijado
+        uses: actions/checkout@v4
+        with:
+          repository: mstan/gbarecomp
+          ref: ${{ env.GBARECOMP_COMMIT }}
+          path: externo/gbarecomp
+
+      - name: Descargar recomp-ui en el commit fijado
+        uses: actions/checkout@v4
+        with:
+          repository: mstan/recomp-ui
+          ref: ${{ env.RECOMP_UI_COMMIT }}
+          path: externo/recomp-ui
+
+      - name: Los commits fijados coinciden con los scripts de construcción
+        run: |
+          grep -q "$GBARECOMP_COMMIT" tools/construir.sh
+          grep -q "$GBARECOMP_COMMIT" tools/construir.ps1
+          grep -q "$RECOMP_UI_COMMIT" tools/construir.sh
+          grep -q "$RECOMP_UI_COMMIT" tools/construir.ps1
+
+      - name: Sintaxis de bash y de Python
+        run: |
+          for f in tools/*.sh tools/pruebas/*.sh; do bash -n "$f"; echo "ok  $f"; done
+          python3 -m py_compile tools/*.py
+
+      - name: Sintaxis de PowerShell (y marca BOM)
+        shell: pwsh
+        run: tools/pruebas/comprobar_sintaxis.ps1
+
+      - name: Los parches encajan (y se pueden aplicar dos veces)
+        run: |
+          python3 tools/aplicar_parches.py externo/gbarecomp
+          python3 tools/aplicar_parches.py externo/gbarecomp
+          python3 tools/aplicar_parches.py externo/recomp-ui
+          python3 tools/aplicar_parches.py externo/recomp-ui
+
+      - name: Pruebas de los filtros de imagen
+        run: tools/pruebas/probar_filtros.sh externo/gbarecomp
+
+      - name: Pruebas del aviso de versión nueva
+        run: tools/pruebas/probar_aviso.sh
+
+      - name: Pruebas de la herramienta de partidas (PowerShell 7)
+        shell: pwsh
+        run: tools/pruebas/probar_partidas.ps1
+
+      - name: Pruebas de la elección de la carpeta de compilación (PowerShell 7)
+        shell: pwsh
+        run: tools/pruebas/probar_obra.ps1
+
+      - name: Pruebas del desinstalador (PowerShell 7)
+        shell: pwsh
+        run: tools/pruebas/probar_desinstalar.ps1
+
+  windows:
+    name: Windows (PowerShell 5.1 y 7)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    # No bloquea: estas pruebas se han escrito sin poder ejecutarlas en un Windows real.
+    # Si fallan, la incidencia que abran te dirá qué hay que ajustar.
+    continue-on-error: true
+    steps:
+      - name: Descargar el proyecto
+        uses: actions/checkout@v4
+
+      - name: Pruebas de partidas con Windows PowerShell 5.1
+        shell: powershell
+        run: .\tools\pruebas\probar_partidas.ps1
+
+      - name: Pruebas de partidas con PowerShell 7
+        shell: pwsh
+        run: .\tools\pruebas\probar_partidas.ps1
+
+      - name: Pruebas de la carpeta de compilación con Windows PowerShell 5.1
+        shell: powershell
+        run: .\tools\pruebas\probar_obra.ps1
+
+      - name: Pruebas del desinstalador con Windows PowerShell 5.1
+        shell: powershell
+        run: .\tools\pruebas\probar_desinstalar.ps1

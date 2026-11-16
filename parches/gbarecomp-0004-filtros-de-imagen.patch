@@ -1,0 +1,1005 @@
+diff --git a/src/runtime/host_window.cpp b/src/runtime/host_window.cpp
+index b70a8c2..4ba48bf 100644
+--- a/src/runtime/host_window.cpp
++++ b/src/runtime/host_window.cpp
+@@ -101,6 +101,7 @@ enum HostHotkey {
+     HK_WINDOW_BIGGER, HK_WINDOW_SMALLER,
+     HK_VOLUME_UP, HK_VOLUME_DOWN, HK_DISPLAY_PERF,
+     HK_SOLAR_BRIGHTER, HK_SOLAR_DIMMER, HK_SOLAR_LIVE,
++    HK_FILTER_NEXT, HK_FILTER_PREV,      // PARCHE mario-tennis: filtro de imagen en directo
+     HK_COUNT
+ };
+ 
+@@ -339,6 +340,414 @@ HostWindow* g_haptic_window = nullptr;
+ // Settings-menu requests from game policies (any thread; consumed by pump).
+ std::atomic<bool> g_settings_menu_requested{false};
+ 
++// ── INICIO filtros de imagen (PARCHE mario-tennis) ─────────────────────────────
++// Filtros de imagen sobre el fotograma ya terminado (240x160). Solo actúan al
++// presentar: no tocan la emulación ni el fotograma de verificación.
++//
++// Los valores son los índices del selector «Filtro de imagen» del menú:
++//   0 Nearest   1 Linear                          (los hace SDL, sin filtro propio)
++//   2 Sharp fractional                            (ampliación entera + ajuste lineal)
++//   3 Scale2x   4 Scale3x   5 Scale4x             (AdvMAME: suavizan diagonales y
++//                                                  no emborronan el texto)
++//   6 HD smooth                                   (Scale4x + suavizado muy ligero)
++//   7 LCD grid  8 CRT scanlines                   (base «nítida» + MÁSCARA a la
++//                                                  resolución de la ventana)
++//
++// Dos ideas para que no se vea «solo borroso» en una ventana cualquiera:
++//  - Los ampliadores (3..6) generan una imagen N veces mayor y después se replica
++//    un número entero de veces más (factor_post) para que el último ajuste lineal
++//    de la tarjeta gráfica sea pequeño: los bordes siguen nítidos.
++//  - La rejilla LCD y las líneas CRT no se pintan sobre la imagen ampliada (al
++//    estirarla a la ventana se emborronaban): se calculan como una máscara del
++//    tamaño exacto de la imagen en pantalla y se multiplican por encima (mezcla
++//    MOD de SDL), así la rejilla/líneas quedan nítidas a cualquier tamaño.
++namespace mtp_filtros {
++
++enum : int {
++    kNearest = 0, kLinear = 1, kNitido = 2, kScale2x = 3, kScale3x = 4,
++    kScale4x = 5, kHdSuave = 6, kRejillaLcd = 7, kCrt = 8, kTotal = 9
++};
++
++// Cuántas veces mayor es la imagen que genera el ampliador (0 = no genera nada).
++// Los filtros «nítidos» (2, 7 y 8) dependen del tamaño de la ventana: «factor_nitido».
++inline int factor(int filtro) {
++    switch (filtro) {
++        case kScale2x:                    return 2;
++        case kScale3x:                    return 3;
++        case kScale4x: case kHdSuave:     return 4;
++        default:                          return 0;
++    }
++}
++
++// «Sharp fractional»: se amplía cada píxel un número entero de veces (el mayor
++// que cabe en la ventana, con un tope) y la tarjeta gráfica hace el último
++// ajuste con filtro lineal. Con ventana de tamaño entero queda perfectamente
++// nítido; con tamaño fraccionario, sin píxeles de anchos desiguales.
++inline int factor_nitido(int ancho_ventana, int ancho_base) {
++    if (ancho_base < 1) return 0;
++    const int n = ancho_ventana / ancho_base;
++    if (n < 2) return 0;
++    return n > 6 ? 6 : n;
++}
++
++// Los filtros 7 y 8 pintan sobre la base nítida una máscara a la resolución de la ventana.
++inline bool usa_mascara(int filtro) { return filtro == kRejillaLcd || filtro == kCrt; }
++
++// Los filtros cuya base es la ampliación entera nítida (la de «factor_nitido»).
++inline bool es_nitido(int filtro) {
++    return filtro == kNitido || filtro == kRejillaLcd || filtro == kCrt;
++}
++
++// Cuántas veces más se replica la imagen de un ampliador (3..6) para que el ajuste
++// lineal final sea pequeño (1 = nada). Tope: 4 veces y 2048 píxeles de ancho.
++inline int factor_post(int ancho_pantalla, int ancho_salida) {
++    if (ancho_salida < 1 || ancho_pantalla < 1) return 1;
++    int k = ancho_pantalla / ancho_salida;
++    if (k > 4) k = 4;
++    while (k > 1 && ancho_salida * k > 2048) --k;
++    return k < 1 ? 1 : k;
++}
++
++// Factor total (imagen generada / 240x160) de un filtro con esos parámetros.
++inline int escala_total(int filtro, int n_nitido, int k_post) {
++    if (es_nitido(filtro)) return n_nitido;
++    const int n = factor(filtro);
++    return n * (k_post < 1 ? 1 : k_post);
++}
++
++struct Buffers {
++    std::vector<uint32_t> t1, t2;   // intermedios (se reutilizan entre fotogramas)
++};
++
++namespace detalle {
++
++inline uint32_t en(const uint32_t* s, int w, int h, int x, int y) {
++    x = x < 0 ? 0 : (x >= w ? w - 1 : x);
++    y = y < 0 ? 0 : (y >= h ? h - 1 : y);
++    return s[static_cast<std::size_t>(y) * w + x];
++}
++
++inline int cr(uint32_t p) { return static_cast<int>((p >> 16) & 0xFF); }
++inline int cg(uint32_t p) { return static_cast<int>((p >> 8) & 0xFF); }
++inline int cb(uint32_t p) { return static_cast<int>(p & 0xFF); }
++inline uint32_t rgb(int r, int g, int b) {
++    r = r < 0 ? 0 : (r > 255 ? 255 : r);
++    g = g < 0 ? 0 : (g > 255 ? 255 : g);
++    b = b < 0 ? 0 : (b > 255 ? 255 : b);
++    return 0xFF000000u | (static_cast<uint32_t>(r) << 16) |
++           (static_cast<uint32_t>(g) << 8) | static_cast<uint32_t>(b);
++}
++
++// Ampliación entera sin suavizar (para el filtro nítido).
++inline void replicar(const uint32_t* s, int w, int h, int n, uint32_t* d) {
++    const std::size_t dw = static_cast<std::size_t>(w) * n;
++    for (int y = 0; y < h; ++y) {
++        uint32_t* fila = d + static_cast<std::size_t>(y) * n * dw;
++        for (int x = 0; x < w; ++x) {
++            const uint32_t p = s[static_cast<std::size_t>(y) * w + x];
++            for (int i = 0; i < n; ++i) fila[static_cast<std::size_t>(x) * n + i] = p;
++        }
++        for (int j = 1; j < n; ++j)
++            std::memcpy(fila + j * dw, fila, dw * sizeof(uint32_t));
++    }
++}
++
++// Scale2x / AdvMAME2x: cada píxel E pasa a 2x2; un vecino solo "invade" si dos
++// vecinos contiguos coinciden y los otros dos difieren (así no hay falsos bordes).
++inline void scale2x(const uint32_t* s, int w, int h, uint32_t* d) {
++    const std::size_t dw = static_cast<std::size_t>(w) * 2;
++    for (int y = 0; y < h; ++y) {
++        for (int x = 0; x < w; ++x) {
++            const uint32_t E = s[static_cast<std::size_t>(y) * w + x];
++            const uint32_t B = en(s, w, h, x, y - 1), D = en(s, w, h, x - 1, y);
++            const uint32_t F = en(s, w, h, x + 1, y), H = en(s, w, h, x, y + 1);
++            uint32_t e0 = E, e1 = E, e2 = E, e3 = E;
++            if (B != H && D != F) {
++                e0 = (D == B) ? D : E;
++                e1 = (B == F) ? F : E;
++                e2 = (D == H) ? D : E;
++                e3 = (H == F) ? F : E;
++            }
++            uint32_t* f0 = d + static_cast<std::size_t>(y) * 2 * dw + static_cast<std::size_t>(x) * 2;
++            f0[0] = e0; f0[1] = e1; f0[dw] = e2; f0[dw + 1] = e3;
++        }
++    }
++}
++
++// Scale3x / AdvMAME3x: igual, a 3x3.
++inline void scale3x(const uint32_t* s, int w, int h, uint32_t* d) {
++    const std::size_t dw = static_cast<std::size_t>(w) * 3;
++    for (int y = 0; y < h; ++y) {
++        for (int x = 0; x < w; ++x) {
++            const uint32_t A = en(s, w, h, x - 1, y - 1), B = en(s, w, h, x, y - 1), C = en(s, w, h, x + 1, y - 1);
++            const uint32_t D = en(s, w, h, x - 1, y),     E = en(s, w, h, x, y),     F = en(s, w, h, x + 1, y);
++            const uint32_t G = en(s, w, h, x - 1, y + 1), H = en(s, w, h, x, y + 1), I = en(s, w, h, x + 1, y + 1);
++            uint32_t p[9] = {E, E, E, E, E, E, E, E, E};
++            if (B != H && D != F) {
++                p[0] = (D == B) ? D : E;
++                p[1] = ((D == B && E != C) || (B == F && E != A)) ? B : E;
++                p[2] = (B == F) ? F : E;
++                p[3] = ((D == B && E != G) || (D == H && E != A)) ? D : E;
++                p[4] = E;
++                p[5] = ((B == F && E != I) || (H == F && E != C)) ? F : E;
++                p[6] = (D == H) ? D : E;
++                p[7] = ((D == H && E != I) || (H == F && E != G)) ? H : E;
++                p[8] = (H == F) ? F : E;
++            }
++            uint32_t* f0 = d + static_cast<std::size_t>(y) * 3 * dw + static_cast<std::size_t>(x) * 3;
++            for (int j = 0; j < 3; ++j)
++                for (int i = 0; i < 3; ++i) f0[static_cast<std::size_t>(j) * dw + i] = p[j * 3 + i];
++        }
++    }
++}
++
++// Mezcla [1 6 1]/8 (redondeada) de tres píxeles, con aritmética empaquetada: rojo y
++// azul juntos en una palabra de 16 bits por canal, verde aparte. Cada vecino pesa solo
++// el 12,5 %: redondea los escalones de las diagonales sin emborronar.
++inline uint32_t mezcla161(uint32_t a, uint32_t b, uint32_t c) {
++    const uint32_t rb = (((a & 0x00FF00FFu) + (b & 0x00FF00FFu) * 6u + (c & 0x00FF00FFu) +
++                          0x00040004u) >> 3) & 0x00FF00FFu;
++    const uint32_t g = ((((a >> 8) & 0xFFu) + ((b >> 8) & 0xFFu) * 6u + ((c >> 8) & 0xFFu) + 4u) >> 3) & 0xFFu;
++    return 0xFF000000u | rb | (g << 8);
++}
++
++// Suavizado [1 6 1]/8 en horizontal y después en vertical (bordes repetidos).
++inline void suavizar_h(const uint32_t* s, int w, int h, uint32_t* d) {
++    for (int y = 0; y < h; ++y) {
++        const uint32_t* f = s + static_cast<std::size_t>(y) * w;
++        uint32_t* o = d + static_cast<std::size_t>(y) * w;
++        if (w == 1) { o[0] = f[0]; continue; }
++        o[0] = mezcla161(f[0], f[0], f[1]);
++        for (int x = 1; x < w - 1; ++x) o[x] = mezcla161(f[x - 1], f[x], f[x + 1]);
++        o[w - 1] = mezcla161(f[w - 2], f[w - 1], f[w - 1]);
++    }
++}
++
++inline void suavizar_v(const uint32_t* s, int w, int h, uint32_t* d) {
++    for (int y = 0; y < h; ++y) {
++        const uint32_t* a = s + static_cast<std::size_t>(y > 0 ? y - 1 : 0) * w;
++        const uint32_t* b = s + static_cast<std::size_t>(y) * w;
++        const uint32_t* c = s + static_cast<std::size_t>(y < h - 1 ? y + 1 : h - 1) * w;
++        uint32_t* o = d + static_cast<std::size_t>(y) * w;
++        for (int x = 0; x < w; ++x) o[x] = mezcla161(a[x], b[x], c[x]);
++    }
++}
++
++// Cuánto cubre una raya oscura de 'raya' píxeles, situada al final de cada celda de
++// 'celda' píxeles, al píxel de pantalla x (que ocupa [x, x+1)). Es el área exacta:
++// con celdas de tamaño entero cae justo en un píxel y con tamaños fraccionarios no
++// produce moiré.
++inline double cobertura(int x, double celda, double raya) {
++    const auto acumulado = [&](double u) {
++        const double k = std::floor(u / celda);
++        const double resto = u - k * celda;
++        return k * raya + (resto > celda - raya ? resto - (celda - raya) : 0.0);
++    };
++    double c = acumulado(x + 1.0) - acumulado(static_cast<double>(x));
++    return c < 0.0 ? 0.0 : (c > 1.0 ? 1.0 : c);
++}
++
++inline uint32_t gris(double v) {
++    int c = static_cast<int>(v * 255.0 + 0.5);
++    c = c < 0 ? 0 : (c > 255 ? 255 : c);
++    return 0xFF000000u | (static_cast<uint32_t>(c) << 16) | (static_cast<uint32_t>(c) << 8) |
++           static_cast<uint32_t>(c);
++}
++
++}  // namespace detalle
++
++// Tamaño máximo de la máscara (píxeles de ventana): por encima se compone a una
++// resolución menor (ver reduccion_mascara). Componer 1920x1080 cuesta ≈ 6 ms de CPU.
++inline bool mascara_cabe(int dw, int dh) {
++    return dw > 0 && dh > 0 && static_cast<long long>(dw) * dh <= 1920LL * 1080LL;
++}
++
++// Máscara de la rejilla de la pantalla LCD de la GBA para una imagen de dw x dh píxeles
++// de ventana que muestra bw x bh píxeles de juego: cada píxel de juego es una celda con
++// una raya oscura (de 1 píxel, o el 14 % de la celda si es grande) en su lado derecho y
++// en su lado inferior. Devuelve la luminosidad media de la máscara (0..1), o -1 si la
++// ventana es demasiado pequeña (menos de 2 píxeles por píxel de juego) o demasiado grande.
++inline double mascara_lcd(int dw, int dh, int bw, int bh, std::vector<uint32_t>& m) {
++    if (bw < 1 || bh < 1 || dw < 2 * bw || dh < 2 * bh || !mascara_cabe(dw, dh)) return -1.0;
++    const double sx = static_cast<double>(dw) / bw, sy = static_cast<double>(dh) / bh;
++    const double rx = std::fmin(std::fmax(0.14 * sx, 1.0), 0.34 * sx);
++    const double ry = std::fmin(std::fmax(0.14 * sy, 1.0), 0.34 * sy);
++    const double oscuridad = 0.30;   // la raya deja pasar el 70 % de la luz
++    std::vector<double> fx(static_cast<std::size_t>(dw)), fy(static_cast<std::size_t>(dh));
++    double mx = 0.0, my = 0.0;
++    for (int x = 0; x < dw; ++x) { fx[static_cast<std::size_t>(x)] = 1.0 - oscuridad * detalle::cobertura(x, sx, rx); mx += fx[static_cast<std::size_t>(x)]; }
++    for (int y = 0; y < dh; ++y) { fy[static_cast<std::size_t>(y)] = 1.0 - oscuridad * detalle::cobertura(y, sy, ry); my += fy[static_cast<std::size_t>(y)]; }
++    m.resize(static_cast<std::size_t>(dw) * dh);
++    for (int y = 0; y < dh; ++y)
++        for (int x = 0; x < dw; ++x)
++            m[static_cast<std::size_t>(y) * dw + x] =
++                detalle::gris(fx[static_cast<std::size_t>(x)] * fy[static_cast<std::size_t>(y)]);
++    return (mx / dw) * (my / dh);
++}
++
++// Máscara de las líneas de barrido de un CRT: cada línea de la GBA es una franja con el
++// centro del haz a plena luz y los bordes más oscuros (hasta el 45 %). Se promedian 4
++// muestras por fila de ventana, así no hay moiré con tamaños fraccionarios. Devuelve la
++// luminosidad media, o -1 si la ventana es demasiado pequeña (menos de 2 filas por línea)
++// o demasiado grande.
++inline double mascara_crt(int dw, int dh, int bw, int bh, std::vector<uint32_t>& m) {
++    (void)bw;
++    if (bh < 1 || dw < 1 || dh < 2 * bh || !mascara_cabe(dw, dh)) return -1.0;
++    const double sy = static_cast<double>(dh) / bh;
++    const double oscuridad = 0.55;
++    std::vector<uint32_t> fila(static_cast<std::size_t>(dh));
++    double media = 0.0;
++    for (int y = 0; y < dh; ++y) {
++        double acum = 0.0;
++        for (int i = 0; i < 4; ++i) {
++            const double pos = (y + (i + 0.5) / 4.0) / sy;
++            const double p = pos - std::floor(pos);
++            const double t = 2.0 * std::fabs(p - 0.5);          // 0 en el centro, 1 en el borde
++            acum += 1.0 - oscuridad * t * t;
++        }
++        const double v = acum / 4.0;
++        fila[static_cast<std::size_t>(y)] = detalle::gris(v);
++        media += v;
++    }
++    m.resize(static_cast<std::size_t>(dw) * dh);
++    for (int y = 0; y < dh; ++y)
++        for (int x = 0; x < dw; ++x) m[static_cast<std::size_t>(y) * dw + x] = fila[static_cast<std::size_t>(y)];
++    return media / dh;
++}
++
++// La máscara solo oscurece: se compensa parte de lo que quita subiendo el brillo de la
++// imagen de origen (hasta un 40 %); los colores que llegan a 255 se recortan.
++inline double ganancia_mascara(double media) {
++    if (!(media > 0.05) || media >= 1.0) return 1.0;
++    const double g = 1.0 + 0.6 * (1.0 / media - 1.0);
++    return g > 1.4 ? 1.4 : g;
++}
++
++inline void aplicar_ganancia(std::vector<uint32_t>& img, double g) {
++    if (g <= 1.0001) return;
++    const int k = static_cast<int>(g * 256.0 + 0.5);
++    for (uint32_t& p : img) {
++        const int r = (detalle::cr(p) * k + 128) >> 8, gg = (detalle::cg(p) * k + 128) >> 8,
++                  bb = (detalle::cb(p) * k + 128) >> 8;
++        p = detalle::rgb(r, gg, bb);
++    }
++}
++
++// Aplica el filtro 'filtro' (2..8) a 's' (w x h) y deja el resultado en 'd', de
++// (w*N) x (h*N) píxeles con N = escala_total(). Devuelve false si el filtro no genera
++// imagen. 'n_nitido' se usa con los filtros 2, 7 y 8 y 'k_post' con los ampliadores 3..6.
++inline bool aplicar(int filtro, int n_nitido, const uint32_t* s, int w, int h,
++                    std::vector<uint32_t>& d, Buffers& buf, int k_post = 1) {
++    const int n = es_nitido(filtro) ? n_nitido : factor(filtro);
++    if (n < 2 || w < 1 || h < 1) return false;
++    const std::size_t area = static_cast<std::size_t>(w) * h;
++    d.resize(area * n * n);
++    if (es_nitido(filtro)) {
++        detalle::replicar(s, w, h, n, d.data());
++        return true;
++    }
++    switch (filtro) {
++        case kScale2x:
++            detalle::scale2x(s, w, h, d.data());
++            break;
++        case kScale3x:
++            detalle::scale3x(s, w, h, d.data());
++            break;
++        case kScale4x:
++            buf.t1.resize(area * 4);
++            detalle::scale2x(s, w, h, buf.t1.data());
++            detalle::scale2x(buf.t1.data(), w * 2, h * 2, d.data());
++            break;
++        case kHdSuave:
++            buf.t1.resize(area * 16);
++            buf.t2.resize(area * 16);
++            detalle::scale2x(s, w, h, buf.t1.data());
++            detalle::scale2x(buf.t1.data(), w * 2, h * 2, buf.t2.data());
++            detalle::suavizar_h(buf.t2.data(), w * 4, h * 4, buf.t1.data());
++            detalle::suavizar_v(buf.t1.data(), w * 4, h * 4, d.data());
++            break;
++        default:
++            return false;
++    }
++    if (k_post > 1) {
++        // Replicación entera del resultado (ver factor_post): d pasa a buf.t2 y vuelve
++        // ampliada.
++        buf.t2.swap(d);
++        d.resize(area * n * n * k_post * k_post);
++        detalle::replicar(buf.t2.data(), w * n, h * n, k_post, d.data());
++    }
++    return true;
++}
++
++// Nombre del filtro (el mismo que el menú de arranque), para el aviso del título.
++inline const char* nombre(int filtro) {
++    static const char* const n[kTotal] = {
++        "Nearest", "Linear", "Sharp fractional", "Scale2x", "Scale3x",
++        "Scale4x", "HD smooth", "LCD grid (GBA)", "CRT scanlines"};
++    return (filtro >= 0 && filtro < kTotal) ? n[filtro] : "?";
++}
++
++// Las máscaras LCD y CRT se componen por CPU a la resolución de la imagen en pantalla
++// dividida por un entero 'k' (1 casi siempre) para que no pase de 1920x1080 píxeles;
++// después la tarjeta gráfica la estira sin filtro (cada píxel compuesto son k x k de
++// pantalla).
++inline int reduccion_mascara(int dw, int dh) {
++    int k = 1;
++    while (k < 8 && !mascara_cabe(dw / k, dh / k)) ++k;
++    return k;
++}
++
++// Marca las filas de la máscara iguales a la anterior (rep[y] = 1): en la rejilla LCD la
++// mayoría de las filas de una celda son idénticas y 'componer' las copia en vez de
++// recalcularlas.
++inline void filas_repetidas(const uint32_t* m, int dw, int dh, std::vector<uint8_t>& rep) {
++    rep.assign(static_cast<std::size_t>(dh), 0);
++    for (int y = 1; y < dh; ++y)
++        rep[static_cast<std::size_t>(y)] =
++            std::memcmp(m + static_cast<std::size_t>(y) * dw,
++                        m + static_cast<std::size_t>(y - 1) * dw,
++                        static_cast<std::size_t>(dw) * sizeof(uint32_t)) == 0 ? 1 : 0;
++}
++
++// Compone la imagen de origen (bw x bh, un entero ARGB por píxel) con la máscara 'm'
++// (dw x dh, el gris va en el canal azul): cada píxel de salida es el píxel de origen
++// que le cae encima (vecino más cercano, igual que las celdas de la máscara) por el
++// gris de la máscara. 'cols' es una tabla de trabajo; 'rep' (opcional, de
++// filas_repetidas) permite copiar las filas que salen iguales que la anterior.
++inline void componer(const uint32_t* origen, int bw, int bh, const uint32_t* m,
++                     int dw, int dh, std::vector<uint32_t>& out, std::vector<int>& cols,
++                     const std::vector<uint8_t>* rep = nullptr) {
++    out.resize(static_cast<std::size_t>(dw) * dh);
++    cols.resize(static_cast<std::size_t>(dw));
++    for (int x = 0; x < dw; ++x)
++        cols[static_cast<std::size_t>(x)] =
++            static_cast<int>((static_cast<long long>(x) * bw) / dw);
++    int sy_anterior = -1;
++    for (int y = 0; y < dh; ++y) {
++        const int sy = static_cast<int>((static_cast<long long>(y) * bh) / dh);
++        const uint32_t* fila = origen + static_cast<std::size_t>(sy) * bw;
++        const uint32_t* mf = m + static_cast<std::size_t>(y) * dw;
++        uint32_t* d = out.data() + static_cast<std::size_t>(y) * dw;
++        const bool copiar = rep && y > 0 && sy == sy_anterior &&
++                            (*rep)[static_cast<std::size_t>(y)] != 0;
++        sy_anterior = sy;
++        if (copiar) {
++            std::memcpy(d, d - dw, static_cast<std::size_t>(dw) * sizeof(uint32_t));
++            continue;
++        }
++        for (int x = 0; x < dw; ++x) {
++            const uint32_t p = fila[cols[static_cast<std::size_t>(x)]];
++            const uint32_t g = (mf[x] & 0xFFu) + 1u;                    // 1..256
++            const uint32_t rb = (((p & 0x00FF00FFu) * g) >> 8) & 0x00FF00FFu;
++            const uint32_t v = ((((p >> 8) & 0xFFu) * g) >> 8) << 8;      // verde
++            d[x] = 0xFF000000u | rb | (v & 0x0000FF00u);
++        }
++    }
++}
++
++}  // namespace mtp_filtros
++// ── FIN filtros de imagen ──────────────────────────────────────────────────────
++
+ struct Backend {
+     SDL_Window*   window   = nullptr;
+     SDL_Renderer* renderer = nullptr;
+@@ -350,6 +759,30 @@ struct Backend {
+     bool          mtp_reducida_fallo = false;
+     int           mtp_relleno_w = 0;
+     int           mtp_relleno_h = 0;
++    // PARCHE mario-tennis: filtros de imagen (textura mayor con el resultado).
++    SDL_Texture*  mtp_filtro_tex = nullptr;
++    int           mtp_filtro_w = 0;
++    int           mtp_filtro_h = 0;
++    bool          mtp_filtro_fallo = false;
++    std::vector<uint32_t> mtp_filtro_ent;
++    std::vector<uint32_t> mtp_filtro_sal;
++    mtp_filtros::Buffers  mtp_filtro_buf;
++    // Rejilla LCD / líneas CRT: máscara a la resolución de la imagen en pantalla y la
++    // imagen ya compuesta con ella (se hace por CPU, sin depender de mezclas de la tarjeta).
++    SDL_Texture*  mtp_comp_tex = nullptr;
++    int           mtp_comp_w = 0;
++    int           mtp_comp_h = 0;
++    bool          mtp_comp_fallo = false;
++    std::vector<uint32_t> mtp_comp_buf;
++    std::vector<int>      mtp_comp_cols;
++    int           mtp_masc_w = 0;
++    int           mtp_masc_h = 0;
++    int           mtp_masc_filtro = -1;
++    double        mtp_masc_media = 1.0;
++    std::vector<uint32_t> mtp_masc_buf;
++    std::vector<uint8_t>  mtp_masc_rep;    // filas de la máscara iguales a la anterior
++    std::string   mtp_config_dir;          // carpeta de config.ini (para guardar el filtro)
++    Uint32        mtp_aviso_hasta = 0;     // aviso del filtro en el título, hasta este instante
+     int           sharp_texture_w = 0;
+     int           sharp_texture_h = 0;
+     bool          sharp_target_failed = false;
+@@ -1169,12 +1602,14 @@ const char* const kHotkeyNames[HK_COUNT] = {
+     "WindowBigger", "WindowSmaller",
+     "VolumeUp", "VolumeDown", "DisplayPerf",
+     "SolarBrighter", "SolarDimmer", "SolarLive",
++    "ImageFilterNext", "ImageFilterPrev",
+ };
+ const char* const kHotkeyDefaults[HK_COUNT] = {
+     "Alt+Return", "Shift+P", "Tab",
+     "", "",
+     "", "", "F",
+     "", "", "",
++    "F12", "Shift+F12",
+ };
+ 
+ // SDL_GetScancodeFromName plus the same lowercase aliases recomp-ui's
+@@ -1420,6 +1855,170 @@ static int mtp_modo_ventana() {
+     return modo;
+ }
+ 
++// PARCHE mario-tennis: filtro de imagen elegido en el menú (GBARECOMP_FILTRO,
++// que el anfitrión del juego fija según «Filtro de imagen»): 0..8, ver mtp_filtros.
++static int g_mtp_filtro = -1;   // -1 = aún sin leer; se cambia en directo (atajo F12)
++static int mtp_filtro_imagen() {
++    if (g_mtp_filtro < 0) {
++        const char* e = std::getenv("GBARECOMP_FILTRO");
++        const int v = (e && e[0]) ? std::atoi(e) : 0;
++        g_mtp_filtro = (v >= 0 && v < mtp_filtros::kTotal) ? v : 0;
++    }
++    return g_mtp_filtro;
++}
++
++// PARCHE mario-tennis: rejilla LCD y líneas CRT. Se componen por CPU: a la imagen de
++// 240x160 se le aplica un poco más de brillo (la máscara solo oscurece) y se multiplica
++// por la máscara a la resolución de la imagen en pantalla (dividida por un entero si pasa
++// de 1920x1080). Sale una textura que se dibuja sin filtro y sin mezclas especiales, así
++// que se ve igual en OpenGL, Direct3D 9/11 o el renderer por software. Devuelve nullptr si
++// la ventana es demasiado pequeña (menos de 2 píxeles de pantalla por píxel de juego): en
++// ese caso queda la imagen nítida normal.
++static SDL_Texture* mtp_imagen_con_mascara(Backend* b, int filtro, const uint8_t* rgb888,
++                                           const PresentationLayout& layout) {
++    if (b->mtp_comp_fallo || layout.width <= 0 || layout.height <= 0) return nullptr;
++    const int k = mtp_filtros::reduccion_mascara(layout.width, layout.height);
++    const int dw = layout.width / k, dh = layout.height / k;
++    if (dw < 1 || dh < 1) return nullptr;
++    if (b->mtp_masc_filtro != filtro || b->mtp_masc_w != dw || b->mtp_masc_h != dh) {
++        const double media = filtro == mtp_filtros::kRejillaLcd
++            ? mtp_filtros::mascara_lcd(dw, dh, b->base_w, b->base_h, b->mtp_masc_buf)
++            : mtp_filtros::mascara_crt(dw, dh, b->base_w, b->base_h, b->mtp_masc_buf);
++        if (media < 0.0) {
++            b->mtp_masc_w = b->mtp_masc_h = 0;
++            b->mtp_masc_filtro = -1;
++            return nullptr;
++        }
++        b->mtp_masc_w = dw;
++        b->mtp_masc_h = dh;
++        b->mtp_masc_filtro = filtro;
++        b->mtp_masc_media = media;
++        mtp_filtros::filas_repetidas(b->mtp_masc_buf.data(), dw, dh, b->mtp_masc_rep);
++        std::fprintf(stderr, "host_window: filtro de imagen «%s»: imagen en pantalla %dx%d, "
++                     "máscara %dx%d (x%d)\n", mtp_filtros::nombre(filtro), layout.width,
++                     layout.height, dw, dh, k);
++    }
++    const int w = b->base_w, h = b->base_h;
++    const std::size_t area = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
++    b->mtp_filtro_ent.resize(area);
++    for (std::size_t i = 0; i < area; ++i)
++        b->mtp_filtro_ent[i] = 0xFF000000u |
++                               (static_cast<uint32_t>(rgb888[3 * i]) << 16) |
++                               (static_cast<uint32_t>(rgb888[3 * i + 1]) << 8) |
++                               static_cast<uint32_t>(rgb888[3 * i + 2]);
++    mtp_filtros::aplicar_ganancia(b->mtp_filtro_ent,
++                                  mtp_filtros::ganancia_mascara(b->mtp_masc_media));
++    mtp_filtros::componer(b->mtp_filtro_ent.data(), w, h, b->mtp_masc_buf.data(), dw, dh,
++                          b->mtp_comp_buf, b->mtp_comp_cols, &b->mtp_masc_rep);
++    if (!b->mtp_comp_tex || b->mtp_comp_w != dw || b->mtp_comp_h != dh) {
++        if (b->mtp_comp_tex) SDL_DestroyTexture(b->mtp_comp_tex);
++        b->mtp_comp_tex = nullptr;
++        b->mtp_comp_w = b->mtp_comp_h = 0;
++        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
++        b->mtp_comp_tex = SDL_CreateTexture(
++            b->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, dw, dh);
++        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, b->linear_filter ? "linear" : "nearest");
++        if (!b->mtp_comp_tex) {
++            std::fprintf(stderr, "host_window: no se pudo crear la textura del filtro de "
++                         "imagen (%s); se usa la imagen nítida\n", SDL_GetError());
++            b->mtp_comp_fallo = true;
++            return nullptr;
++        }
++#if SDL_VERSION_ATLEAST(2, 0, 12)
++        SDL_SetTextureScaleMode(b->mtp_comp_tex, SDL_ScaleModeNearest);
++#endif
++        b->mtp_comp_w = dw;
++        b->mtp_comp_h = dh;
++    }
++    SDL_UpdateTexture(b->mtp_comp_tex, nullptr, b->mtp_comp_buf.data(),
++                      dw * static_cast<int>(sizeof(uint32_t)));
++    return b->mtp_comp_tex;
++}
++
++// PARCHE mario-tennis: textura que hay que dibujar. Sin filtro de imagen (o si el
++// renderer no puede crear la textura mayor) es la normal; con él, una textura
++// N veces mayor con el resultado del filtro, siempre con filtro lineal. Con la rejilla
++// LCD y las líneas CRT es la imagen ya compuesta con la máscara (b->mtp_comp_tex).
++static SDL_Texture* mtp_textura_filtrada(Backend* b, const uint8_t* rgb888,
++                                         const PresentationLayout& layout) {
++    const int filtro = mtp_filtro_imagen();
++    if (filtro < mtp_filtros::kNitido || b->mtp_filtro_fallo || !rgb888)
++        return b->texture;
++    if (mtp_filtros::usa_mascara(filtro)) {
++        if (SDL_Texture* t = mtp_imagen_con_mascara(b, filtro, rgb888, layout)) return t;
++    }
++    const int w = b->base_w, h = b->base_h;
++    const int ancho_pantalla = layout.width > 0 ? layout.width : b->last_drawable_w;
++    const int n_nitido = mtp_filtros::factor_nitido(ancho_pantalla, w);
++    int k_post = 1;
++    if (!mtp_filtros::es_nitido(filtro))
++        k_post = mtp_filtros::factor_post(ancho_pantalla, w * mtp_filtros::factor(filtro));
++    const int n = mtp_filtros::escala_total(filtro, n_nitido, k_post);
++    if (n < 2) return b->texture;
++
++    const std::size_t area = static_cast<std::size_t>(w) * static_cast<std::size_t>(h);
++    b->mtp_filtro_ent.resize(area);
++    for (std::size_t i = 0; i < area; ++i)
++        b->mtp_filtro_ent[i] = 0xFF000000u |
++                               (static_cast<uint32_t>(rgb888[3 * i]) << 16) |
++                               (static_cast<uint32_t>(rgb888[3 * i + 1]) << 8) |
++                               static_cast<uint32_t>(rgb888[3 * i + 2]);
++    if (!mtp_filtros::aplicar(filtro, n_nitido, b->mtp_filtro_ent.data(), w, h,
++                              b->mtp_filtro_sal, b->mtp_filtro_buf, k_post))
++        return b->texture;
++
++    const int tw = w * n, th = h * n;
++    if (!b->mtp_filtro_tex || b->mtp_filtro_w != tw || b->mtp_filtro_h != th) {
++        if (b->mtp_filtro_tex) SDL_DestroyTexture(b->mtp_filtro_tex);
++        b->mtp_filtro_tex = nullptr;
++        b->mtp_filtro_w = b->mtp_filtro_h = 0;
++        SDL_RendererInfo info{};
++        if (SDL_GetRendererInfo(b->renderer, &info) == 0 &&
++            ((info.max_texture_width > 0 && tw > info.max_texture_width) ||
++             (info.max_texture_height > 0 && th > info.max_texture_height))) {
++            std::fprintf(stderr, "host_window: el filtro de imagen necesita una "
++                         "textura de %dx%d y el renderer admite %dx%d; se usa la imagen normal\n",
++                         tw, th, info.max_texture_width, info.max_texture_height);
++            b->mtp_filtro_fallo = true;
++            return b->texture;
++        }
++        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
++        b->mtp_filtro_tex = SDL_CreateTexture(
++            b->renderer, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, tw, th);
++        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, b->linear_filter ? "linear" : "nearest");
++        if (!b->mtp_filtro_tex) {
++            std::fprintf(stderr, "host_window: no se pudo crear la textura del filtro "
++                         "de imagen (%s); se usa la imagen normal\n", SDL_GetError());
++            b->mtp_filtro_fallo = true;
++            return b->texture;
++        }
++#if SDL_VERSION_ATLEAST(2, 0, 12)
++        SDL_SetTextureScaleMode(b->mtp_filtro_tex, SDL_ScaleModeLinear);
++#endif
++        b->mtp_filtro_w = tw;
++        b->mtp_filtro_h = th;
++    }
++    SDL_UpdateTexture(b->mtp_filtro_tex, nullptr, b->mtp_filtro_sal.data(),
++                      tw * static_cast<int>(sizeof(uint32_t)));
++    return b->mtp_filtro_tex;
++}
++
++// PARCHE mario-tennis: dibuja la imagen ya compuesta con la máscara (rejilla LCD / líneas
++// CRT). Va en píxeles de ventana, sin el tamaño lógico de SDL, para que cada píxel
++// compuesto caiga en uno (o k x k) de pantalla.
++static void mtp_copiar_compuesta(Backend* b, const PresentationLayout& layout) {
++    int logical_w = 0, logical_h = 0;
++    SDL_Rect viewport{};
++    SDL_RenderGetLogicalSize(b->renderer, &logical_w, &logical_h);
++    SDL_RenderGetViewport(b->renderer, &viewport);
++    SDL_RenderSetLogicalSize(b->renderer, 0, 0);
++    SDL_RenderSetViewport(b->renderer, nullptr);
++    const SDL_Rect destino = {layout.x, layout.y, layout.width, layout.height};
++    SDL_RenderCopy(b->renderer, b->mtp_comp_tex, nullptr, &destino);
++    SDL_RenderSetLogicalSize(b->renderer, logical_w, logical_h);
++    SDL_RenderSetViewport(b->renderer, &viewport);
++}
++
+ // PARCHE mario-tennis: fondo de las barras laterales (modo 2). Reduce la imagen
+ // dos veces (÷4 y ÷4) con filtro lineal para obtener un fondo muy suave: así las
+ // barras no repiten, como un fantasma, el marcador ni los personajes. Devuelve la
+@@ -2186,6 +2785,8 @@ void HostWindow::close() {
+     destroy_sharp_texture(b);
+     // PARCHE mario-tennis
+     if (b->mtp_relleno) SDL_DestroyTexture(b->mtp_relleno);
++    if (b->mtp_filtro_tex) SDL_DestroyTexture(b->mtp_filtro_tex);
++    if (b->mtp_comp_tex) SDL_DestroyTexture(b->mtp_comp_tex);
+     if (b->mtp_reducida_a) SDL_DestroyTexture(b->mtp_reducida_a);
+     if (b->mtp_reducida_b) SDL_DestroyTexture(b->mtp_reducida_b);
+     if (b->texture)   SDL_DestroyTexture(b->texture);
+@@ -2362,6 +2963,9 @@ void HostWindow::present(const uint8_t* rgb888) {
+     const SDL_Rect destination{layout.x, layout.y, layout.width, layout.height};
+     SDL_RenderCopy(b->renderer, b->texture, nullptr, &destination);
+ #else
++    // PARCHE mario-tennis: la imagen filtrada (o la normal si no hay filtro).
++    SDL_Texture* const mtp_imagen = mtp_textura_filtrada(b, rgb888, layout);
++    const bool mtp_compuesta = mtp_imagen && mtp_imagen == b->mtp_comp_tex;
+     if (!b->expanded_view && !b->resize_driven_view) {
+         if (mtp_modo_ventana() == 2 && b->mtp_relleno &&
+             layout.width > 0 && layout.height > 0 &&
+@@ -2373,9 +2977,12 @@ void HostWindow::present(const uint8_t* rgb888) {
+             SDL_RenderCopy(b->renderer, fondo, nullptr, nullptr);
+             const SDL_Rect destino = {layout.x, layout.y, layout.width,
+                                       layout.height};
+-            SDL_RenderCopy(b->renderer, b->texture, nullptr, &destino);
++            if (mtp_compuesta) mtp_copiar_compuesta(b, layout);
++            else SDL_RenderCopy(b->renderer, mtp_imagen, nullptr, &destino);
++        } else if (mtp_compuesta) {
++            mtp_copiar_compuesta(b, layout);
+         } else {
+-            SDL_RenderCopy(b->renderer, b->texture, nullptr, nullptr);
++            SDL_RenderCopy(b->renderer, mtp_imagen, nullptr, nullptr);
+         }
+     } else {
+         if (layout.width > 0 && layout.height > 0) {
+@@ -2405,8 +3012,9 @@ void HostWindow::present(const uint8_t* rgb888) {
+                 // Exact integer scales and unsupported render-target backends
+                 // retain the crisp nearest path.
+                 SDL_SetRenderTarget(b->renderer, nullptr);
+-                SDL_RenderCopy(
+-                    b->renderer, b->texture, nullptr, &destination);
++                if (mtp_compuesta) mtp_copiar_compuesta(b, layout);
++                else SDL_RenderCopy(
++                    b->renderer, mtp_imagen, nullptr, &destination);
+             }
+         }
+     }
+@@ -2422,6 +3030,12 @@ void HostWindow::present(const uint8_t* rgb888) {
+         SDL_RenderPresent(b->renderer);
+     }
+ 
++    if (b->mtp_aviso_hasta != 0 &&
++        static_cast<Sint32>(SDL_GetTicks() - b->mtp_aviso_hasta) >= 0) {
++        b->mtp_aviso_hasta = 0;
++        if (!b->fps_readout) SDL_SetWindowTitle(b->window, b->title.c_str());
++    }
++
+     // FPS readout (DisplayPerf hotkey): presents/sec, refreshed twice a
+     // second in the title bar; the base title is restored when toggled off.
+     if (b->fps_readout) {
+@@ -2449,6 +3063,7 @@ void HostWindow::load_input_config(const char* dir,
+     b->assist_fast_forward_multiplier = std::clamp(
+         fast_forward_multiplier_default, 2, 10);
+     const std::string base = std::string(dir) + "/";
++    b->mtp_config_dir = dir;   // PARCHE mario-tennis: para guardar el filtro elegido
+ 
+     // keybinds.ini [player1] (recomp-ui generic format, scancode names).
+     ini_scan_section((base + "keybinds.ini").c_str(), "player1",
+@@ -2588,6 +3203,89 @@ bool HostWindow::linear_filter() const {
+     return open_ && impl_ && static_cast<const Backend*>(impl_)->linear_filter;
+ }
+ 
++// PARCHE mario-tennis: guarda el filtro elegido en config.ini (image_filter, y de paso
++// linear_filter / sharp_filter, que el menú de arranque mantiene a juego). Solo toca las
++// líneas que ya existen; si no hay config.ini no hace nada.
++static void mtp_guardar_filtro(const std::string& dir, int filtro) {
++    if (dir.empty()) return;
++    const std::string ruta = dir + "/config.ini";
++    std::FILE* f = std::fopen(ruta.c_str(), "rb");
++    if (!f) return;
++    std::string contenido;
++    char buf[4096];
++    std::size_t n;
++    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) contenido.append(buf, n);
++    std::fclose(f);
++    const struct { const char* clave; int valor; } cambios[] = {
++        {"image_filter", filtro},
++        {"linear_filter", filtro == mtp_filtros::kLinear ? 1 : 0},
++        {"sharp_filter", filtro == mtp_filtros::kNitido ? 1 : 0},
++    };
++    std::string salida;
++    std::size_t pos = 0;
++    bool cambiado = false;
++    while (pos < contenido.size()) {
++        std::size_t fin = contenido.find('\n', pos);
++        const bool hay_salto = fin != std::string::npos;
++        if (!hay_salto) fin = contenido.size();
++        std::string linea = contenido.substr(pos, fin - pos);
++        const bool cr = !linea.empty() && linea.back() == '\r';
++        if (cr) linea.pop_back();
++        for (const auto& c : cambios) {
++            const std::size_t lc = std::strlen(c.clave);
++            if (linea.compare(0, lc, c.clave) == 0) {
++                std::size_t k = lc;
++                while (k < linea.size() && (linea[k] == ' ' || linea[k] == '\t')) ++k;
++                if (k < linea.size() && linea[k] == '=') {
++                    linea = std::string(c.clave) + " = " + std::to_string(c.valor);
++                    cambiado = true;
++                }
++                break;
++            }
++        }
++        salida += linea;
++        if (cr) salida += '\r';
++        if (hay_salto) salida += '\n';
++        pos = fin + (hay_salto ? 1 : 0);
++    }
++    if (!cambiado) return;
++    const std::string tmp = ruta + ".tmp";
++    std::FILE* o = std::fopen(tmp.c_str(), "wb");
++    if (!o) return;
++    const bool ok = std::fwrite(salida.data(), 1, salida.size(), o) == salida.size();
++    std::fclose(o);
++    if (!ok || std::rename(tmp.c_str(), ruta.c_str()) != 0) {
++        std::remove(ruta.c_str());
++        if (std::rename(tmp.c_str(), ruta.c_str()) != 0) std::remove(tmp.c_str());
++    }
++}
++
++int HostWindow::image_filter() const { return mtp_filtro_imagen(); }
++
++void HostWindow::set_image_filter(int filtro, bool anunciar) {
++    if (!open_ || !impl_) return;
++    auto* b = static_cast<Backend*>(impl_);
++    if (filtro < 0 || filtro >= mtp_filtros::kTotal) filtro = 0;
++    g_mtp_filtro = filtro;
++    set_linear_filter(filtro == mtp_filtros::kLinear);
++    b->mtp_masc_filtro = -1;   // fuerza a rehacer la máscara
++    std::fprintf(stderr, "host_window: filtro de imagen %d (%s)\n", filtro,
++                 mtp_filtros::nombre(filtro));
++    if (anunciar) {
++        mtp_guardar_filtro(b->mtp_config_dir, filtro);
++        const std::string texto = b->title + " - filtro: " + mtp_filtros::nombre(filtro);
++        SDL_SetWindowTitle(b->window, texto.c_str());
++        b->mtp_aviso_hasta = SDL_GetTicks() + 3000u;
++        if (b->mtp_aviso_hasta == 0) b->mtp_aviso_hasta = 1;
++    }
++}
++
++void HostWindow::cycle_image_filter(int delta) {
++    if (!open_ || !impl_) return;
++    const int total = mtp_filtros::kTotal;
++    set_image_filter((mtp_filtro_imagen() + (delta < 0 ? total - 1 : 1)) % total, true);
++}
++
+ void HostWindow::set_audio_enabled(bool enabled) {
+     if (!open_ || !impl_) return;
+     auto* b = static_cast<Backend*>(impl_);
+@@ -3021,6 +3719,8 @@ HostWindow::Events HostWindow::pump() {
+                         case HK_SOLAR_BRIGHTER: ev.solar_brighter = true;    break;
+                         case HK_SOLAR_DIMMER:   ev.solar_dimmer = true;      break;
+                         case HK_SOLAR_LIVE:     ev.solar_live = true;        break;
++                        case HK_FILTER_NEXT:    ev.filter_next = true;       break;
++                        case HK_FILTER_PREV:    ev.filter_prev = true;       break;
+                     }
+                 }
+             }
+@@ -3216,6 +3916,9 @@ int  HostWindow::volume() const { return 100; }
+ int  HostWindow::window_scale() const { return 1; }
+ void HostWindow::set_linear_filter(bool /*enabled*/) {}
+ bool HostWindow::linear_filter() const { return false; }
++int  HostWindow::image_filter() const { return 0; }
++void HostWindow::set_image_filter(int /*filtro*/, bool /*anunciar*/) {}
++void HostWindow::cycle_image_filter(int /*delta*/) {}
+ void HostWindow::set_audio_enabled(bool /*enabled*/) {}
+ bool HostWindow::audio_enabled() const { return false; }
+ void HostWindow::set_resize_driven_view(bool /*enabled*/) {}
+diff --git a/src/runtime/host_window.h b/src/runtime/host_window.h
+index 7ab95ec..615305a 100644
+--- a/src/runtime/host_window.h
++++ b/src/runtime/host_window.h
+@@ -98,6 +98,11 @@ public:
+     int  window_scale() const;
+     void set_linear_filter(bool enabled);
+     bool linear_filter() const;
++    // PARCHE mario-tennis: filtro de imagen en directo (0..8, ver mtp_filtros). El de
++    // «cycle» se anuncia en el título unos segundos y se guarda en config.ini.
++    int  image_filter() const;
++    void set_image_filter(int filtro, bool anunciar);
++    void cycle_image_filter(int delta);
+     void set_audio_enabled(bool enabled);
+     bool audio_enabled() const;
+     void set_resize_driven_view(bool enabled);
+@@ -214,6 +219,8 @@ public:
+         bool     volume_up = false;
+         bool     volume_down = false;
+         bool     toggle_fps = false;
++        bool     filter_next = false;   // PARCHE mario-tennis: siguiente filtro de imagen
++        bool     filter_prev = false;   // PARCHE mario-tennis: filtro de imagen anterior
+         // Horizontal mouse velocity while the left button is held. The runtime
+         // maps this host-neutral delta onto cartridge gyroscope sample units.
+         int      gyro_delta_x = 0;
+diff --git a/src/runtime/launcher_seam.h b/src/runtime/launcher_seam.h
+index eb5831e..19e06a7 100644
+--- a/src/runtime/launcher_seam.h
++++ b/src/runtime/launcher_seam.h
+@@ -329,6 +329,15 @@ inline std::string toml_path_value(const std::string& toml_path,
+     return (ec ? (base / p) : abs).string();
+ }
+ 
++// PARCHE mario-tennis: un valor del selector «Filtro de imagen» que el juego
++// ofrece (si no, el primero). Se define antes de SeamConfig para usarlo al cargar.
++inline int normalizar_filtro(int valor, const gbarecomp::RunOptions& opts) {
++    if (opts.launcher_num_filters <= 0 || !opts.launcher_filter_values) return valor;
++    for (int i = 0; i < opts.launcher_num_filters; ++i)
++        if (opts.launcher_filter_values[i] == valor) return valor;
++    return opts.launcher_filter_values[0];
++}
++
+ // Launcher-owned persisted settings (config.ini [Launcher]).
+ struct SeamConfig {
+     int  scale = 3;
+@@ -336,6 +345,7 @@ struct SeamConfig {
+     int  linear_filter = 0;
+     int  sharp_filter = -1;
+     int  affine_filter = -1;
++    int  image_filter = -1;    // PARCHE mario-tennis: selector «Filtro de imagen» (-1 = sin elegir)
+     int  screen_kind = 0;      // kScreenTokens index
+     int  volume = 100;
+     int  skip_launcher = 0;
+@@ -385,6 +395,7 @@ inline void seam_config_load(const std::string& path, SeamConfig* c) {
+         else if (key == "linear_filter") c->linear_filter = std::atoi(val.c_str());
+         else if (key == "sharp_filter") c->sharp_filter = std::atoi(val.c_str());
+         else if (key == "affine_filter") c->affine_filter = std::atoi(val.c_str());
++        else if (key == "image_filter")  c->image_filter = std::atoi(val.c_str());
+         else if (key == "screen")        c->screen_kind = screen_token_to_index(val);
+         else if (key == "volume")        c->volume = std::atoi(val.c_str());
+         else if (key == "skip_launcher") c->skip_launcher = std::atoi(val.c_str());
+@@ -454,6 +465,7 @@ inline void seam_config_save(const std::string& path, const SeamConfig& c) {
+     f << "linear_filter = " << c.linear_filter << "\n";
+     f << "sharp_filter = " << c.sharp_filter << "\n";
+     f << "affine_filter = " << c.affine_filter << "\n";
++    f << "image_filter = " << c.image_filter << "\n";
+     f << "screen = " << kScreenTokens[c.screen_kind] << "\n";
+     f << "volume = " << c.volume << "\n";
+     f << "skip_launcher = " << c.skip_launcher << "\n";
+@@ -588,6 +600,10 @@ inline void seam_append_setting_args(std::vector<std::string>& args,
+         args.push_back("--affine-filter");
+         args.push_back(c.affine_filter ? "1" : "0");
+     }
++    if (opts.launcher_num_filters > 0) {
++        args.push_back("--image-filter");
++        args.push_back(std::to_string(c.image_filter));
++    }
+     args.push_back("--screen");
+     args.push_back(kScreenTokens[c.screen_kind]);
+     // Tri-state: 0 off, 1 borderless, 2 exclusive. Pass the value explicitly
+@@ -705,6 +721,15 @@ inline int gbarecomp_launcher_preboot(std::vector<std::string>& args,
+         cfg.sharp_filter = opts.launcher_default_sharp_filter ? 1 : 0;
+     if (cfg.affine_filter < 0)
+         cfg.affine_filter = opts.launcher_default_affine_filter ? 1 : 0;
++    if (opts.launcher_num_filters > 0) {
++        // PARCHE mario-tennis: el selector manda sobre «linear» y «sharp». Un
++        // config.ini anterior (sin image_filter) conserva lo que tenía elegido.
++        if (cfg.image_filter < 0)
++            cfg.image_filter = cfg.sharp_filter ? 2 : (cfg.linear_filter ? 1 : 0);
++        cfg.image_filter = gbarecomp_seam::normalizar_filtro(cfg.image_filter, opts);
++        cfg.linear_filter = cfg.image_filter == 1 ? 1 : 0;
++        cfg.sharp_filter = cfg.image_filter == 2 ? 1 : 0;
++    }
+     if (cfg.assist_tools < 0)
+         cfg.assist_tools = opts.assist_tools_enabled_by_default ? 1 : 0;
+     if (cfg.assist_fast_forward_multiplier < 2 ||
+@@ -797,6 +822,7 @@ inline int gbarecomp_launcher_preboot(std::vector<std::string>& args,
+     if (opts.has_solar_sensor) solar_in_launcher = push_solar_settings(ls, solar);
+     ls.screen_kind   = cfg.screen_kind;
+     ls.aspect_index  = cfg.aspect_index;
++    if (opts.launcher_num_filters > 0) ls.texture_filter = cfg.image_filter;   // PARCHE mario-tennis
+     ls.assist_tools = cfg.assist_tools;
+     ls.assist_fast_forward_multiplier =
+         cfg.assist_fast_forward_multiplier;
+@@ -880,6 +906,16 @@ inline int gbarecomp_launcher_preboot(std::vector<std::string>& args,
+     gbarecomp_seam::set_presentation_filter_caps(
+         gi, opts.launcher_expose_sharp_filter,
+         opts.launcher_expose_affine_filter);
++    if (opts.launcher_num_filters > 0 && opts.launcher_filter_labels &&
++        opts.launcher_filter_values) {
++        // PARCHE mario-tennis: la fila «Texture filtering» con el vocabulario del
++        // juego sustituye a «Scaling filter» (el menú solo dibuja una de las dos).
++        gi.has_sharp_filter = 0;
++        gi.has_texture_filter = 1;
++        gi.texture_filter_labels = opts.launcher_filter_labels;
++        gi.texture_filter_values = opts.launcher_filter_values;
++        gi.num_texture_filters = opts.launcher_num_filters;
++    }
+ #if defined(GBARECOMP_ENABLE_MODS)
+     gi.mods = mod_provider;
+ #endif
+@@ -942,6 +978,12 @@ inline int gbarecomp_launcher_preboot(std::vector<std::string>& args,
+         gbarecomp_seam::get_sharp_filter(ls, cfg.sharp_filter != 0) ? 1 : 0;
+     cfg.affine_filter =
+         gbarecomp_seam::get_affine_filter(ls, cfg.affine_filter != 0) ? 1 : 0;
++    if (opts.launcher_num_filters > 0) {
++        // PARCHE mario-tennis: lo elegido en el selector «Filtro de imagen».
++        cfg.image_filter = gbarecomp_seam::normalizar_filtro(ls.texture_filter, opts);
++        cfg.linear_filter = cfg.image_filter == 1 ? 1 : 0;
++        cfg.sharp_filter = cfg.image_filter == 2 ? 1 : 0;
++    }
+     cfg.screen_kind   = (ls.screen_kind >= 0 && ls.screen_kind <= 4)
+                           ? ls.screen_kind : 0;
+     cfg.volume        = ls.volume;
+diff --git a/src/runtime/runtime.cpp b/src/runtime/runtime.cpp
+index 55c4fb8..ad1478d 100644
+--- a/src/runtime/runtime.cpp
++++ b/src/runtime/runtime.cpp
+@@ -276,7 +276,9 @@ int runtime_ui_get(void* opaque, const RecompRuntimeUiItem* item, int* out) {
+     if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_FULLSCREEN) == 0) *out = c->window->fullscreen();
+     else if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_WINDOW_SCALE) == 0) *out = c->window->window_scale();
+     else if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_VIEW_MODE) == 0) *out = c->view_mode;
+-    else if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LINEAR_FILTER) == 0) *out = c->window->linear_filter();
++    // PARCHE mario-tennis: «Linear filter» del menú del juego = filtro 1 (Linear) frente a 0
++    // (Nearest); los demás filtros se eligen con F12 o en el menú de arranque.
++    else if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LINEAR_FILTER) == 0) *out = c->window->image_filter() == 1;
+     else if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_AUDIO) == 0) *out = c->window->audio_enabled();
+     else if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_VOLUME) == 0) *out = c->window->volume();
+     else if (std::strcmp(item->key, GBARECOMP_UI_KEY_STATE_SLOT) == 0) *out = c->state_slot;
+@@ -308,7 +310,7 @@ int runtime_ui_set(void* opaque, const RecompRuntimeUiItem* item, int value) {
+         c->view_mode = value;
+         c->view_mode_dirty = true;
+     } else if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LINEAR_FILTER) == 0)
+-        c->window->set_linear_filter(value != 0);
++        c->window->set_image_filter(value != 0 ? 1 : 0, true);   // PARCHE mario-tennis
+     else if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_AUDIO) == 0)
+         c->window->set_audio_enabled(value != 0);
+     else if (std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_VOLUME) == 0)
+@@ -3642,6 +3644,8 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+         if (ev.volume_up)   win.set_volume(win.volume() + 10);
+         if (ev.volume_down) win.set_volume(win.volume() - 10);
+         if (ev.toggle_fps)  win.set_fps_readout(!win.fps_readout());
++        if (ev.filter_next) win.cycle_image_filter(+1);   // PARCHE mario-tennis
++        if (ev.filter_prev) win.cycle_image_filter(-1);
+         if (ev.toggle_pause) {
+             host_paused = !host_paused;
+             // Realign the pacer on unpause so it doesn't burn the
+diff --git a/src/runtime/runtime.h b/src/runtime/runtime.h
+index 08b51d4..706586a 100644
+--- a/src/runtime/runtime.h
++++ b/src/runtime/runtime.h
+@@ -313,6 +313,13 @@ struct RunOptions {
+     const char* const*   launcher_aspect_labels = nullptr;
+     const std::uint16_t* launcher_aspect_view_widths = nullptr;
+     int                  launcher_num_aspects = 0;
++    // PARCHE mario-tennis: selector «Filtro de imagen» del menú de arranque. Si
++    // launcher_num_filters > 0 sustituye a la fila «Scaling filter»: labels y
++    // values son arrays paralelos de num_filters entradas (el valor elegido se
++    // guarda en config.ini y se pasa como --image-filter <valor>).
++    const char* const*   launcher_filter_labels = nullptr;
++    const int*           launcher_filter_values = nullptr;
++    int                  launcher_num_filters = 0;
+     // Box-art image path relative to the assets dir staged next to the exe;
+     // null => the launcher's default "assets/img/boxart.tga". Multi-variant
+     // repos stage one file per variant (e.g. "assets/img/boxart_firered.tga").

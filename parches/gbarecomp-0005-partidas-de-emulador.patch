@@ -1,0 +1,52 @@
+diff --git a/src/runtime/runtime.cpp b/src/runtime/runtime.cpp
+index 55c4fb8..c6a5b84 100644
+--- a/src/runtime/runtime.cpp
++++ b/src/runtime/runtime.cpp
+@@ -517,6 +517,24 @@ bool read_file(const std::string& path, std::vector<uint8_t>* out,
+     return true;
+ }
+ 
++// PARCHE mario-tennis: partidas de otros emuladores y de flashcarts. Un .sav de SRAM
++// de la GBA mide 32 KiB, pero algunos programas lo guardan rellenado hasta 64 o 128
++// KiB (con 0x00, con 0xFF o repitiendo los mismos 32 KiB). Si lo que sobra es solo
++// eso, se recorta a 'tam' y devuelve true; si hay datos distintos (otro tipo de
++// guardado, otro juego) no toca nada y devuelve false.
++bool mtp_recortar_sav(std::vector<uint8_t>* datos, std::size_t tam) {
++    if (!datos || tam == 0 || datos->size() <= tam) return false;
++    const uint8_t* resto = datos->data() + tam;
++    const std::size_t n = datos->size() - tam;
++    bool relleno = (resto[0] == 0x00 || resto[0] == 0xFF);
++    for (std::size_t i = 1; relleno && i < n; ++i) relleno = (resto[i] == resto[0]);
++    bool espejo = (datos->size() % tam) == 0;
++    for (std::size_t i = 0; espejo && i < n; ++i) espejo = (resto[i] == (*datos)[i % tam]);
++    if (!relleno && !espejo) return false;
++    datos->resize(tam);
++    return true;
++}
++
+ bool write_bmp(const std::string& path, const uint8_t* rgb,
+                uint32_t w, uint32_t h) {
+     uint32_t row_bytes = w * 3;
+@@ -1859,6 +1877,22 @@ int run_game(int argc, char** argv, const RunOptions& opts) {
+                 std::fprintf(stderr, "[gbarecomp:runtime] %s\n", err.c_str());
+                 return 1;
+             }
++            const std::size_t tam_original = save_bytes.size();
++            if (tam_original > bus.save().sram_size() &&
++                mtp_recortar_sav(&save_bytes, bus.save().sram_size())) {
++                // Se guarda una copia del archivo original (una sola vez) y se sigue
++                // con los primeros 32 KiB; al guardar, el .sav queda con su tamaño real.
++                std::error_code ec_copia;
++                std::filesystem::copy_file(
++                    args.save_path, args.save_path + ".original",
++                    std::filesystem::copy_options::skip_existing, ec_copia);
++                std::fprintf(stderr,
++                             "[gbarecomp:runtime] partida: %s mide %zu bytes; se usan los "
++                             "primeros %zu (el resto es relleno o una copia). Copia del "
++                             "original: %s.original\n",
++                             args.save_path.c_str(), tam_original, save_bytes.size(),
++                             args.save_path.c_str());
++            }
+             if (save_bytes.size() > bus.save().sram_size()) {
+                 std::fprintf(stderr,
+                              "[gbarecomp:runtime] save file too large: %s "

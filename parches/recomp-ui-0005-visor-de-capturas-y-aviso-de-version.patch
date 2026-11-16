@@ -1,0 +1,502 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index 3a48159..2d82023 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -94,6 +94,16 @@ static const char* ui_text(const char* en) {
+     return launcher_i18n_text(en);
+ }
+ 
++// PARCHE mario-tennis: aviso de versión nueva. Lo da el anfitrión (src/aviso_actualizacion.cpp)
++// cuando el proyecto define MTP_EXTRAS_MENU; sin él, el menú no avisa de nada.
++#if defined(MTP_EXTRAS_MENU)
++extern "C" const char* mtp_aviso_actualizacion(void);   // "" o la versión nueva, p. ej. "0.4.4"
++extern "C" const char* mtp_version_instalada(void);
++#else
++static const char* mtp_aviso_actualizacion(void) { return ""; }
++static const char* mtp_version_instalada(void) { return ""; }
++#endif
++
+ // PARCHE mario-tennis: enseña el atajo en español («Alt+Intro», «Mayús+P»). Solo es el
+ // texto que se dibuja: lo que se guarda en config.ini sigue siendo «Alt+Return», «Shift+P».
+ static const char* etiqueta_atajo(const char* atajo) {
+@@ -5518,6 +5528,242 @@ void draw_credits(LauncherModel* m, const LauncherTheme& th) {
+     end_panel();
+ }
+ 
++// ═══ PARCHE mario-tennis: visor de capturas ═══════════════════════════════════════
++// Pantalla «Capturas» del menú de arranque: rejilla de miniaturas con las imágenes de la
++// carpeta «capturas» (las que guarda la tecla de captura, F10 por defecto) y, al elegir una,
++// vista grande con anterior / siguiente / abrir carpeta / borrar. Las miniaturas se cargan de
++// dos en dos por fotograma y solo las que se ven; todo se libera al salir de la pantalla.
++namespace capturas {
++
++struct Foto {
++    std::string ruta;
++    std::string nombre;
++    LauncherTexture mini{};   // miniatura (id 0 = sin cargar)
++    int ancho = 0, alto = 0;  // tamaño real de la imagen
++    bool intentada = false;   // ya se intentó cargar la miniatura (no reintentar cada fotograma)
++};
++
++constexpr size_t kMaximo = 150;        // las más recientes
++std::vector<Foto> g_fotos;
++bool g_listado = false;
++int g_abierta = -1;                    // captura en vista grande; -1 = rejilla
++int g_borrar = -1;                     // captura «armada» para borrar (hay que pulsar dos veces)
++LauncherTexture g_grande{};
++int g_grande_de = -1;                  // de qué captura es g_grande
++const char* g_mensaje = nullptr;       // aviso de estado (ya traducido)
++
++std::filesystem::path carpeta() {
++    const char* ini = std::getenv("MTP_CONFIG_INI");
++    std::filesystem::path base =
++        (ini && ini[0]) ? std::filesystem::path(ini).parent_path() : std::filesystem::path();
++    if (base.empty()) base = ".";
++    return base / "capturas";
++}
++
++void liberar() {
++    for (Foto& f : g_fotos) launcher_texture_free(&f.mini);
++    g_fotos.clear();
++    launcher_texture_free(&g_grande);
++    g_grande_de = -1;
++    g_abierta = -1;
++    g_borrar = -1;
++    g_mensaje = nullptr;
++    g_listado = false;
++}
++
++void listar() {
++    liberar();
++    std::error_code ec;
++    for (std::filesystem::directory_iterator it(carpeta(), ec), fin; !ec && it != fin; it.increment(ec)) {
++        std::error_code e2;
++        if (!it->is_regular_file(e2)) continue;
++        std::string ext = it->path().extension().string();
++        for (char& c : ext) c = (char)std::tolower((unsigned char)c);
++        if (ext != ".png") continue;
++        Foto f;
++        f.ruta = it->path().string();
++        f.nombre = it->path().filename().string();
++        g_fotos.push_back(std::move(f));
++    }
++    // Los nombres llevan la fecha y la hora (MarioTennis_2026-11-14_17-32-05.png): al
++    // ordenarlos al revés quedan primero las más recientes.
++    std::sort(g_fotos.begin(), g_fotos.end(),
++              [](const Foto& a, const Foto& b) { return a.nombre > b.nombre; });
++    if (g_fotos.size() > kMaximo) g_fotos.resize(kMaximo);
++    g_listado = true;
++}
++
++// «MarioTennis_2026-11-14_17-32-05.png» -> «14/11/2026  17:32:05»; si no encaja, el nombre.
++std::string etiqueta(const Foto& f) {
++    int a = 0, mes = 0, d = 0, h = 0, mi = 0, s = 0;
++    if (std::sscanf(f.nombre.c_str(), "MarioTennis_%d-%d-%d_%d-%d-%d", &a, &mes, &d, &h, &mi, &s) == 6) {
++        char buf[48];
++        std::snprintf(buf, sizeof(buf), "%02d/%02d/%04d  %02d:%02d:%02d", d, mes, a, h, mi, s);
++        return buf;
++    }
++    return f.nombre;
++}
++
++void abrir_carpeta() {
++    std::error_code ec;
++    std::filesystem::create_directories(carpeta(), ec);
++    std::string url, error;
++    if (launcher_directory_url(carpeta().u8string().c_str(), url, error)) (void)SDL_OpenURL(url.c_str());
++}
++
++void borrar(int i) {
++    if (i < 0 || i >= (int)g_fotos.size()) return;
++    std::error_code ec;
++    const bool ok = std::filesystem::remove(g_fotos[i].ruta, ec) && !ec;
++    if (!ok) { g_mensaje = ui_text("Could not delete the screenshot."); return; }
++    launcher_texture_free(&g_fotos[i].mini);
++    g_fotos.erase(g_fotos.begin() + i);
++    launcher_texture_free(&g_grande);
++    g_grande_de = -1;
++    g_borrar = -1;
++    g_mensaje = ui_text("Screenshot deleted.");
++    if (g_fotos.empty()) g_abierta = -1;
++    else if (g_abierta >= (int)g_fotos.size()) g_abierta = (int)g_fotos.size() - 1;
++}
++
++}  // namespace capturas
++
++void draw_capturas(LauncherModel* m, const LauncherTheme& th) {
++    (void)m;
++    using namespace capturas;
++    if (!g_listado) listar();
++    const float alto_cuerpo = ImGui::GetContentRegionAvail().y;
++    const float arriba_y = ImGui::GetCursorScreenPos().y;   // para repartir la altura entre botones e imagen
++    if (!begin_panel("capturas_page", 0, false)) {
++        end_panel();
++        return;
++    }
++    eyebrow("SCREENSHOTS");
++    const float sep = px(12.0f);
++
++    // Barra superior de la rejilla: recuento / aviso y «Abrir carpeta» (en la vista grande,
++    // el botón va en la fila de botones para dejar más sitio a la imagen).
++    if (g_abierta < 0) {
++        ImGui::AlignTextToFramePadding();
++        if (g_mensaje) ImGui::TextColored(col(th.good), "%s", g_mensaje);
++        else if (g_fotos.empty()) ImGui::TextColored(col(th.text_muted), "%s",
++            ui_text("No screenshots yet. Press the screenshot key (F10 by default) while you play to take one."));
++        else ImGui::TextColored(col(th.text_muted), ui_text("Saved screenshots: %d"), (int)g_fotos.size());
++        const float w = px(150.0f);
++        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - w);
++        if (ImGui::Button(ui_text("Open folder"), ImVec2(w, px(30)))) abrir_carpeta();
++        ImGui::Dummy(ImVec2(0, px(6.0f)));
++    }
++
++    if (g_abierta < 0) {
++        // ── Rejilla de miniaturas ──────────────────────────────────────────────
++        const float mw = px(250.0f), mh = px(167.0f);   // 3:2, como la imagen del juego
++        int cols = (int)((ImGui::GetContentRegionAvail().x + sep) / (mw + sep));
++        if (cols < 1) cols = 1;
++        int presupuesto = 2;                             // miniaturas que se cargan en este fotograma
++        for (int i = 0; i < (int)g_fotos.size(); ++i) {
++            Foto& f = g_fotos[i];
++            if (i % cols != 0) ImGui::SameLine(0, sep);
++            ImGui::BeginGroup();
++            ImGui::PushID(i);
++            const ImVec2 p0 = ImGui::GetCursorScreenPos();
++            const ImVec2 p1(p0.x + mw, p0.y + mh);
++            // EnableNav: InvisibleButton no se deja alcanzar con flechas/mando si no se pide.
++            const bool pulsada = ImGui::InvisibleButton("##foto", ImVec2(mw, mh), ImGuiButtonFlags_EnableNav);
++            const bool resaltada = ImGui::IsItemHovered() || ImGui::IsItemFocused();
++            ImDrawList* dl = ImGui::GetWindowDrawList();
++            dl->AddRectFilled(p0, p1, imcol(th.control), px(4.0f));
++            if (!f.mini.id && !f.intentada && presupuesto > 0 && ImGui::IsRectVisible(p0, p1)) {
++                f.mini = launcher_texture_load_thumb(f.ruta.c_str(), 360, 240, &f.ancho, &f.alto);
++                f.intentada = true;
++                --presupuesto;
++            }
++            if (f.mini.id && f.mini.w > 0 && f.mini.h > 0) {
++                const float s = std::min(mw / (float)f.mini.w, mh / (float)f.mini.h);
++                const float w = f.mini.w * s, h = f.mini.h * s;
++                const ImVec2 a(p0.x + (mw - w) * 0.5f, p0.y + (mh - h) * 0.5f);
++                dl->AddImage(tid(f.mini), a, ImVec2(a.x + w, a.y + h));
++            } else if (f.intentada) {
++                const char* x = ui_text("Could not read this image.");
++                const ImVec2 ts = ImGui::CalcTextSize(x);
++                dl->AddText(ImVec2(p0.x + (mw - ts.x) * 0.5f, p0.y + (mh - ts.y) * 0.5f),
++                            imcol(th.text_muted), x);
++            }
++            dl->AddRect(p0, p1, resaltada ? imcol(th.accent) : imcol(th.border), px(4.0f), 0,
++                        px(resaltada ? 2.0f : 1.0f));
++            ImGui::TextColored(col(th.text_muted), "%s", etiqueta(f).c_str());
++            ImGui::PopID();
++            ImGui::EndGroup();
++            if (pulsada) { g_abierta = i; g_borrar = -1; g_mensaje = nullptr; }
++        }
++    } else {
++        // ── Vista grande ───────────────────────────────────────────────────────
++        if (g_abierta >= (int)g_fotos.size()) g_abierta = (int)g_fotos.size() - 1;
++        if (g_abierta < 0) { end_panel(); return; }
++        Foto& f = g_fotos[g_abierta];
++        if (g_grande_de != g_abierta) {
++            launcher_texture_free(&g_grande);
++            g_grande = launcher_texture_load(f.ruta.c_str());
++            g_grande_de = g_abierta;
++        }
++        ImGui::TextColored(col(th.text), "%s", etiqueta(f).c_str());
++        ImGui::SameLine(0, px(14.0f));
++        ImGui::TextColored(col(th.text_muted), "%s", f.nombre.c_str());
++        if (g_grande.id) {
++            ImGui::SameLine(0, px(14.0f));
++            ImGui::TextColored(col(th.text_muted), "%d x %d", g_grande.w, g_grande.h);
++        }
++        if (g_mensaje) {
++            ImGui::SameLine(0, px(14.0f));
++            ImGui::TextColored(col(th.good), "%s", g_mensaje);
++        }
++        const float bw = px(130.0f), bh = px(34.0f);
++        const bool hay_anterior = g_abierta > 0;
++        const bool hay_siguiente = g_abierta + 1 < (int)g_fotos.size();
++        ImGui::BeginDisabled(!hay_anterior);
++        if (ImGui::Button(ui_text("< Previous"), ImVec2(bw, bh))) { --g_abierta; g_borrar = -1; g_mensaje = nullptr; }
++        ImGui::EndDisabled();
++        ImGui::SameLine(0, px(8.0f));
++        ImGui::BeginDisabled(!hay_siguiente);
++        if (ImGui::Button(ui_text("Next >"), ImVec2(bw, bh))) { ++g_abierta; g_borrar = -1; g_mensaje = nullptr; }
++        ImGui::EndDisabled();
++        ImGui::SameLine(0, px(8.0f));
++        ImGui::TextColored(col(th.text_muted), ui_text("%d of %d"), g_abierta + 1, (int)g_fotos.size());
++        ImGui::SameLine(0, px(8.0f));
++        {
++            const bool armado = (g_borrar == g_abierta);
++            const float w2 = px(170.0f);
++            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - 3 * w2 - 2 * px(8.0f));
++            if (ImGui::Button(ui_text("Open folder"), ImVec2(w2, bh))) abrir_carpeta();
++            ImGui::SameLine(0, px(8.0f));
++            if (armado) ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
++            if (ImGui::Button(armado ? ui_text("Delete? Press again") : ui_text("Delete"), ImVec2(w2, bh))) {
++                if (armado) borrar(g_abierta);
++                else { g_borrar = g_abierta; g_mensaje = nullptr; }
++            }
++            if (armado) ImGui::PopStyleColor();
++            ImGui::SameLine(0, px(8.0f));
++            if (ImGui::Button(ui_text("Close"), ImVec2(w2, bh))) { g_abierta = -1; g_borrar = -1; }
++        }
++        ImGui::Dummy(ImVec2(0, px(8.0f)));
++        if (g_abierta >= 0 && g_grande_de == g_abierta) {
++            if (g_grande.id && g_grande.w > 0 && g_grande.h > 0) {
++                // Lo que queda del cuerpo de la pantalla tras la cabecera y los botones.
++                float caja_h = alto_cuerpo - (ImGui::GetCursorScreenPos().y - arriba_y) - px(28.0f);
++                if (caja_h < px(160.0f)) caja_h = px(160.0f);
++                const float caja_w = ImGui::GetContentRegionAvail().x;
++                const float s = std::min(caja_w / (float)g_grande.w, caja_h / (float)g_grande.h);
++                const float w = g_grande.w * s, h = g_grande.h * s;
++                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (caja_w - w) * 0.5f);
++                ImGui::Image(tid(g_grande), ImVec2(w, h));
++            } else {
++                ImGui::TextColored(col(th.warn), "%s", ui_text("Could not read this image."));
++            }
++        }
++    }
++    end_panel();
++}
++
+ /* Draw a bind row's LABEL and leave the cursor at `label_col_w` from the start
+  * of this table cell, ready for the bind chip.
+  *
+@@ -6223,11 +6469,11 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                          m->capture_btn < LNG_PSX_PAD_BUTTON_COUNT)
+                             ? spec.buttons[m->capture_btn].label : "?";
+                     ImGui::TextColored(col(th.warn),
+-                        "Map %s to %s (Esc cancels, Backspace unbinds)%s",
+-                        m->capture_slot == 1 ? "an alternate key / mouse button"
+-                                             : "a key",
+-                        label,
+-                        m->map_all_active ? " — Map All" : "");
++                        ui_text("Map %s to %s (Esc cancels, Backspace unbinds)%s"),
++                        ui_text(m->capture_slot == 1 ? "an alternate key / mouse button"
++                                                     : "a key"),
++                        etiqueta_direccion(label),
++                        m->map_all_active ? ui_text(" — Map All") : "");
+                 }
+                 if (ImGui::GetTime() < s_kb_profile_saved_until)
+                     ImGui::TextColored(col(th.accent2), ui_text("Input Profile Saved!"));
+@@ -6309,13 +6555,13 @@ void draw_controller_config_view(LauncherModel* m, const LauncherTheme& th) {
+                             ? spec.buttons[m->capture_btn].label : "?";
+                     if (m->map_all_wait_release) {
+                         ImGui::TextColored(col(th.warn),
+-                            "Release Button (Esc cancels, Backspace unbinds)%s",
+-                            m->map_all_active ? " — Map All" : "");
++                            ui_text("Release Button (Esc cancels, Backspace unbinds)%s"),
++                            m->map_all_active ? ui_text(" — Map All") : "");
+                     } else {
+                         ImGui::TextColored(col(th.warn),
+-                            "Map an input to %s (Esc cancels, Backspace unbinds)%s",
+-                            label,
+-                            m->map_all_active ? " — Map All" : "");
++                            ui_text("Map an input to %s (Esc cancels, Backspace unbinds)%s"),
++                            etiqueta_direccion(label),
++                            m->map_all_active ? ui_text(" — Map All") : "");
+                     }
+                 }
+                 if (ImGui::GetTime() < s_profile_saved_until)
+@@ -14111,12 +14357,17 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+         const float right = ImGui::GetWindowContentRegionMax().x;
+         const float y = hdr_top + px(6.0f);
+         if (m->view == LNG_VIEW_DASHBOARD) {
+-            const int count = 1 + (m->mods ? 1 : 0) +
++            const int count = 2 + (m->mods ? 1 : 0) +   // PARCHE mario-tennis: +1 por «Capturas»
+                               (m->has_assist_tools ? 1 : 0) +
+                               ((m->credits_text && m->credits_text[0]) ? 1 : 0);
+             const float w = px(110.0f);
+             const float total = w * count + gap * (count - 1);
+             ImGui::SetCursorPos(ImVec2(right - total, y));
++            if (ImGui::Button(ui_text("Captures"), ImVec2(w, px(34)))) {
++                capturas::liberar();   // se vuelve a listar la carpeta al entrar
++                launcher_model_set_view(m, LNG_VIEW_CAPTURES);
++            }
++            ImGui::SameLine(0, gap);
+             if (ImGui::Button(ui_text("Settings"), ImVec2(w, px(34))))
+                 launcher_model_set_view(m, LNG_VIEW_SETTINGS);
+             if (m->mods) {
+@@ -14193,6 +14444,27 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+     }
+     ImGui::Dummy(ImVec2(0, px(12.0f)));
+     (void)hp;
++    {   // PARCHE mario-tennis: aviso de versión nueva (se ve en la pantalla de inicio)
++        static bool aviso_oculto = false;
++        const char* nueva = mtp_aviso_actualizacion();   // la primera llamada lanza la comprobación
++        if (m->view == LNG_VIEW_DASHBOARD && !aviso_oculto && nueva && nueva[0]) {
++            char msg[320];
++            std::snprintf(msg, sizeof(msg),
++                ui_text("A new version is available: %s (you have %s). "
++                        "Download the new zip and run its ACTUALIZAR.bat."),
++                nueva, mtp_version_instalada());
++            const float bw = px(110.0f);
++            ImGui::AlignTextToFramePadding();
++            ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
++            ImGui::PushTextWrapPos(ImGui::GetWindowContentRegionMax().x - bw - px(12.0f));
++            ImGui::TextWrapped("%s", msg);
++            ImGui::PopTextWrapPos();
++            ImGui::PopStyleColor();
++            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - bw);
++            if (ImGui::Button(ui_text("Hide"), ImVec2(bw, px(28)))) aviso_oculto = true;
++            ImGui::Dummy(ImVec2(0, px(6.0f)));
++        }
++    }
+ 
+     // Body: fixed-height child that scrolls when content overflows, so nothing
+     // is ever clipped out of reach. The footer below stays fixed (in the fold).
+@@ -14200,6 +14472,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+     float body_h = ImGui::GetContentRegionAvail().y - footer_h;
+     if (body_h < px(80.0f)) body_h = px(80.0f);
+     begin_container("body", ImVec2(0, body_h));
++    if (m->view != LNG_VIEW_CAPTURES && capturas::g_listado) capturas::liberar();   // PARCHE mario-tennis
+     switch (m->view) {
+         case LNG_VIEW_DASHBOARD:  draw_dashboard(m, th, logical_w); break;
+         case LNG_VIEW_SETTINGS:   draw_settings(m, th);             break;
+@@ -14210,6 +14483,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+         case LNG_VIEW_MODS:       draw_mods(m, th);                 break;
+         case LNG_VIEW_ASSIST_TOOLS: draw_assist_tools(m, th);        break;
+         case LNG_VIEW_CREDITS:      draw_credits(m, th);             break;
++        case LNG_VIEW_CAPTURES:     draw_capturas(m, th);            break;
+         case LNG_VIEW_LOBBY:        draw_lobby(m, th);               break;
+     }
+     end_container();
+@@ -15009,6 +15283,7 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
+     launcher_boot_timing_mark("rui:action_requested");
+     launcher_input_shutdown();
+     launcher_boot_timing_mark("rui:input_closed");
++    capturas::liberar();   // PARCHE mario-tennis
+     launcher_texture_free(&g_boxart);
+     launcher_texture_free(&g_pad);
+     launcher_texture_free(&g_pad_analog);
+diff --git a/src/common/launcher_gl.c b/src/common/launcher_gl.c
+index 1af3ccf..ad59af2 100644
+--- a/src/common/launcher_gl.c
++++ b/src/common/launcher_gl.c
+@@ -2,6 +2,8 @@
+ 
+ #include "launcher_gl.h"
+ 
++#include <stdlib.h>
++
+ #include "launcher_sdlcompat.h"   // GL header for the active SDL version
+ 
+ #ifndef GL_CLAMP_TO_EDGE
+@@ -79,6 +81,54 @@ LauncherTexture launcher_texture_load_colorkey(const char* path, int tolerance)
+     return load_impl(path, tolerance < 0 ? 0 : tolerance);
+ }
+ 
++// PARCHE mario-tennis: miniatura (ver launcher_gl.h).
++LauncherTexture launcher_texture_load_thumb(const char* path, int max_w, int max_h,
++                                            int* out_w, int* out_h) {
++    LauncherTexture t = { 0, 0, 0 };
++    int w = 0, h = 0, comp = 0;
++    unsigned char* pixels = stbi_load(path, &w, &h, &comp, 4);   // RGBA
++    if (!pixels) return t;
++    if (out_w) *out_w = w;
++    if (out_h) *out_h = h;
++    if (w <= 0 || h <= 0 || max_w <= 0 || max_h <= 0) { stbi_image_free(pixels); return t; }
++
++    int k = 1;
++    while (w / k > max_w || h / k > max_h) ++k;
++    const int tw = w / k > 0 ? w / k : 1;
++    const int th = h / k > 0 ? h / k : 1;
++    unsigned char* mini = (unsigned char*)malloc((size_t)tw * th * 4);
++    if (!mini) { stbi_image_free(pixels); return t; }
++    for (int y = 0; y < th; ++y) {
++        for (int x = 0; x < tw; ++x) {
++            unsigned int suma[4] = { 0, 0, 0, 0 };
++            for (int dy = 0; dy < k; ++dy) {
++                const unsigned char* fila = pixels + ((size_t)(y * k + dy) * w + (size_t)x * k) * 4;
++                for (int dx = 0; dx < k; ++dx)
++                    for (int c = 0; c < 4; ++c) suma[c] += fila[dx * 4 + c];
++            }
++            unsigned char* dst = mini + ((size_t)y * tw + x) * 4;
++            for (int c = 0; c < 4; ++c) dst[c] = (unsigned char)(suma[c] / (unsigned int)(k * k));
++        }
++    }
++    stbi_image_free(pixels);
++
++    GLuint tex = 0;
++    glGenTextures(1, &tex);
++    glBindTexture(GL_TEXTURE_2D, tex);
++    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tw, th, 0, GL_RGBA, GL_UNSIGNED_BYTE, mini);
++    glBindTexture(GL_TEXTURE_2D, 0);
++    free(mini);
++
++    t.id = (unsigned int)tex;
++    t.w = tw; t.h = th;
++    return t;
++}
++
+ void launcher_texture_free(LauncherTexture* t) {
+     if (t && t->id) {
+         GLuint id = (GLuint)t->id;
+diff --git a/src/common/launcher_gl.h b/src/common/launcher_gl.h
+index 2215b80..d281544 100644
+--- a/src/common/launcher_gl.h
++++ b/src/common/launcher_gl.h
+@@ -32,6 +32,13 @@ LauncherTexture launcher_texture_load_colorkey(const char* path, int tolerance);
+ 
+ void launcher_texture_free(LauncherTexture* t);
+ 
++// PARCHE mario-tennis: miniatura. Como launcher_texture_load, pero reduce la imagen por un
++// factor entero (promedio de bloques) hasta que quepa en max_w x max_h antes de subirla a la
++// tarjeta gráfica: una captura de 1200x800 ocupa 3,8 MB de textura; su miniatura, unos 0,3 MB.
++// out_w/out_h (opcionales) reciben el tamaño ORIGINAL de la imagen.
++LauncherTexture launcher_texture_load_thumb(const char* path, int max_w, int max_h,
++                                            int* out_w, int* out_h);
++
+ // Decode an image file to a tightly-packed RGBA8 buffer, WITHOUT touching GL.
+ // For the one consumer that needs pixels rather than a texture: the window /
+ // taskbar icon, which SDL wants as a surface. Returns NULL on failure; on
+diff --git a/src/common/launcher_i18n.cpp b/src/common/launcher_i18n.cpp
+index 2451e82..04984c6 100644
+--- a/src/common/launcher_i18n.cpp
++++ b/src/common/launcher_i18n.cpp
+@@ -565,6 +565,27 @@ static const LauncherI18nEntry kSpanish[] = {
+     {"Select an existing file of the right type.", "Elige un archivo que exista y sea del tipo correcto."},
+     {"Select an existing file matching: %s", "Elige un archivo que exista y encaje con: %s"},
+     {"Select your verified Game Boy Advance ROM (.gba).", "Elige tu ROM de Game Boy Advance (.gba) verificada."},
++    // ---- 0.4.4: visor de capturas y aviso de versión nueva ----
++    {"Captures", "Capturas"},
++    {"SCREENSHOTS", "CAPTURAS"},
++    {"Saved screenshots: %d", "Capturas guardadas: %d"},
++    {"No screenshots yet. Press the screenshot key (F10 by default) while you play to take one.", "Todavía no hay capturas. Pulsa la tecla de captura (F10 por defecto) mientras juegas para hacer una."},
++    {"< Previous", "< Anterior"},
++    {"Next >", "Siguiente >"},
++    {"%d of %d", "%d de %d"},
++    {"Delete", "Borrar"},
++    {"Delete? Press again", "¿Borrar? Pulsa otra vez"},
++    {"Screenshot deleted.", "Captura borrada."},
++    {"Could not delete the screenshot.", "No se pudo borrar la captura."},
++    {"Could not read this image.", "No se pudo leer esta imagen."},
++    {"Hide", "Ocultar"},
++    {"A new version is available: %s (you have %s). Download the new zip and run its ACTUALIZAR.bat.", "Hay una versión nueva: %s (tienes la %s). Descarga el zip nuevo y ejecuta su ACTUALIZAR.bat."},
++    {"Map %s to %s (Esc cancels, Backspace unbinds)%s", "Asigna %s a %s (Esc cancela, Retroceso borra)%s"},
++    {"an alternate key / mouse button", "una tecla alternativa o un botón del ratón"},
++    {"a key", "una tecla"},
++    {" — Map All", " — Asignar todos"},
++    {"Release Button (Esc cancels, Backspace unbinds)%s", "Suelta el botón (Esc cancela, Retroceso borra)%s"},
++    {"Map an input to %s (Esc cancels, Backspace unbinds)%s", "Asigna un botón o eje a %s (Esc cancela, Retroceso borra)%s"},
+ };
+ 
+ // PARCHE mario-tennis: con MTP_I18N_DEBUG=1 se escribe en stderr cada texto sin traducir (una
+diff --git a/src/common/launcher_model.h b/src/common/launcher_model.h
+index d01602e..e47fc5f 100644
+--- a/src/common/launcher_model.h
++++ b/src/common/launcher_model.h
+@@ -59,6 +59,8 @@ typedef enum {
+      * skipped entirely when this client is already signed in or when the
+      * server offers no logins -- see draw_netplay_mode_page. */
+     LNG_VIEW_NETPLAY_SIGNIN,
++    /* PARCHE mario-tennis: visor de capturas de pantalla (carpeta «capturas»). */
++    LNG_VIEW_CAPTURES,
+     /* Keep last. launcher_model_set_view validates against this rather than
+      * against the last real view, which is what silently swallowed the two
+      * views above when they were first added. */

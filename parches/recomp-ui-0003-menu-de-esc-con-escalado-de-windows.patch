@@ -1,0 +1,131 @@
+diff --git a/src/common/backends/imgui/runtime_ui_imgui.cpp b/src/common/backends/imgui/runtime_ui_imgui.cpp
+index 8875ab8..b044d14 100644
+--- a/src/common/backends/imgui/runtime_ui_imgui.cpp
++++ b/src/common/backends/imgui/runtime_ui_imgui.cpp
+@@ -18,6 +18,30 @@ const char *tr(const char *texto) {
+     return texto ? launcher_i18n_text(texto) : "";
+ }
+ 
++// PARCHE mario-tennis (DPI): factor con el que el anfitrión agranda el menú (io.FontGlobalScale;
++// 1 = 100 %). Las medidas fijas en píxeles de este archivo se multiplican por él, para que el
++// panel crezca igual que el texto. En el modo táctil ya hay su propia escala.
++float factor_escala(bool touch_friendly) {
++    return touch_friendly ? 1.0f : std::max(1.0f, ImGui::GetIO().FontGlobalScale);
++}
++
++// PARCHE mario-tennis: si el texto no cabe en max_w lo recorta con «...» (sin partir un
++// carácter UTF-8), en vez de dejarlo cortado de golpe por el borde o pisando otros controles.
++const char *recortar_a_ancho(const char *texto, float max_w, char *buf, size_t n) {
++    if (!texto || n < 8 || max_w <= 0.0f || ImGui::CalcTextSize(texto).x <= max_w)
++        return texto;
++    size_t largo = std::strlen(texto);
++    if (largo > n - 4) largo = n - 4;
++    while (largo > 0) {
++        --largo;
++        while (largo > 0 && (static_cast<unsigned char>(texto[largo]) & 0xC0) == 0x80) --largo;
++        std::memcpy(buf, texto, largo);
++        std::memcpy(buf + largo, "...", 4);
++        if (ImGui::CalcTextSize(buf).x <= max_w) return buf;
++    }
++    return "...";
++}
++
+ ImVec4 col(const LngColor &c, float alpha = 1.0f) {
+     return ImVec4(c.r, c.g, c.b, c.a * alpha);
+ }
+@@ -127,9 +151,10 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
+         const float row_h = item->description && item->description[0]
+                                 ? theme.row_height + theme.spacing_sm
+                                 : theme.row_height;
++        const float k = factor_escala(touch_friendly);   // PARCHE mario-tennis (DPI)
+         const float step_button_w =
+-            touch_friendly ? std::max(76.0f, row_h * 0.90f) : 38.0f;
+-        const float step_gap = touch_friendly ? 12.0f : 6.0f;
++            touch_friendly ? std::max(76.0f, row_h * 0.90f) : 38.0f * k;
++        const float step_gap = touch_friendly ? 12.0f : 6.0f * k;
+         const float step_controls_w =
+             item->type == RECOMP_RUNTIME_UI_INT
+                 ? step_button_w * 2.0f + step_gap + theme.spacing_sm
+@@ -167,9 +192,15 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
+         const ImVec2 next = ImGui::GetCursorScreenPos();
+         const ImU32 label_color = u32(enabled ? theme.text : theme.text_muted,
+                                       enabled ? 1.0f : 0.65f);
++        char etiqueta_buf[160];
++        const float ancho_fila = end.x - start.x - theme.spacing_md * 2.0f;
++        const float ancho_valor = ImGui::CalcTextSize(value).x + step_controls_w;
+         draw->AddText(ImVec2(start.x + theme.spacing_md,
+                             start.y + theme.spacing_sm),
+-                      label_color, tr(item->label));
++                      label_color,
++                      recortar_a_ancho(tr(item->label),
++                                       ancho_fila - ancho_valor - theme.spacing_md,
++                                       etiqueta_buf, sizeof(etiqueta_buf)));
+         const bool stepped_value = item->type == RECOMP_RUNTIME_UI_INT;
+         const bool editing_this = item->type == RECOMP_RUNTIME_UI_TEXT &&
+                                   ui->editing_text && selected;
+@@ -183,15 +214,20 @@ void draw_items(RecompRuntimeUi *ui, const LauncherTheme &theme,
+                           value);
+         }
+         if (item->description && item->description[0]) {
++            char descripcion_buf[256];
++            // Debajo de los botones -/+ no se escribe: se recorta antes de llegar a ellos.
+             draw->AddText(ImVec2(start.x + theme.spacing_md,
+                                 start.y + theme.spacing_sm +
+                                     ImGui::GetTextLineHeight() + 2.0f),
+-                          u32(theme.text_muted), tr(item->description));
++                          u32(theme.text_muted),
++                          recortar_a_ancho(tr(item->description),
++                                           ancho_fila - step_controls_w,
++                                           descripcion_buf, sizeof(descripcion_buf)));
+         }
+         if (editing_this && enabled) {
+             const float field_w = touch_friendly
+                 ? std::clamp((end.x - start.x) * 0.42f, 240.0f, 520.0f)
+-                : 200.0f;
++                : 200.0f * k;
+             const float field_h = touch_friendly
+                 ? std::max(ImGui::GetFrameHeight(), row_h * 0.72f)
+                 : ImGui::GetFrameHeight();
+@@ -352,18 +388,29 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
+         theme.radius_sm *= metric_scale;
+         theme.radius_lg *= metric_scale;
+     }
++    // PARCHE mario-tennis (DPI): las medidas del panel crecen con el texto (factor del
++    // anfitrión), y el panel es algo más ancho (900 en vez de 780) para los textos en español.
++    const float k = factor_escala(touch_friendly);
++    if (k > 1.0f) {
++        theme.row_height *= k;
++        theme.spacing_sm *= k;
++        theme.spacing_md *= k;
++        theme.spacing_lg *= k;
++        theme.radius_sm *= k;
++        theme.radius_lg *= k;
++    }
+     const float margin = touch_friendly
+         ? std::max(20.0f, short_axis * 0.025f)
+-        : 24.0f;
+-    const float max_width = touch_friendly ? display.x : 780.0f;
+-    const float max_height = touch_friendly ? display.y : 680.0f;
++        : 24.0f * k;
++    const float max_width = touch_friendly ? display.x : 900.0f * k;
++    const float max_height = touch_friendly ? display.y : 680.0f * k;
+     const float width = display.x - margin * 2.0f < max_width
+                             ? display.x - margin * 2.0f
+                             : max_width;
+     const float height = display.y - margin * 2.0f < max_height
+                              ? display.y - margin * 2.0f
+                              : max_height;
+-    const bool wide = width >= (touch_friendly ? 900.0f : 640.0f);
++    const bool wide = width >= (touch_friendly ? 900.0f : 640.0f * k);
+     ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f, display.y * 0.5f),
+                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+     ImGui::SetNextWindowSize(ImVec2(width, height), ImGuiCond_Always);
+@@ -412,7 +459,7 @@ extern "C" void recomp_runtime_ui_render_imgui(RecompRuntimeUi *ui) {
+         if (wide) {
+             const float sidebar_w = touch_friendly
+                 ? std::clamp(width * 0.20f, 280.0f, 520.0f)
+-                : 190.0f;
++                : 190.0f * k;
+             ImGui::BeginChild("##sections", ImVec2(sidebar_w, content_h), true);
+             draw_sections(ui, theme, false);
+             ImGui::EndChild();
