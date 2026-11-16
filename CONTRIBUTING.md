@@ -31,7 +31,7 @@ Todo lo que se pueda probar sin Windows tiene una prueba automática:
 # (Los parches de recomp-ui se aplican igual sobre su carpeta: la carpeta debe llamarse
 # «recomp-ui», porque el nombre decide qué parches le tocan.)
 python3 tools/aplicar_parches.py <carpeta de gbarecomp>
-tools/pruebas/probar_filtros.sh <carpeta de gbarecomp>
+bash tools/pruebas/probar_filtros.sh <carpeta de gbarecomp>
 
 # Herramienta de partidas, carpeta de compilación y desinstalador (necesitan PowerShell 7)
 pwsh tools/pruebas/probar_partidas.ps1

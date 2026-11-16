@@ -39,6 +39,12 @@ de versión está en el archivo `VERSION` (lo lee `ACTUALIZAR.bat` para saber si
   del mando) y desde 0.4.3 está traducido. El teclado guarda su asignación solo en `keybinds.ini`.
   **No se ha podido probar con un mando físico** (el entorno de pruebas no tiene ninguno).
 
+### Corregido
+- **La comprobación de Linux de GitHub Actions fallaba al subir el repositorio desde Windows**: allí los
+  `.sh` pierden el permiso de ejecución y llamarlos directamente da «Permission denied» (salía en rojo
+  a los 14 s, en el paso de los filtros). El workflow, el README y `CONTRIBUTING.md` los ejecutan ahora con
+  `bash tools/…`, que funciona con o sin ese permiso. Reproducido en local quitando el permiso a los scripts.
+
 ### Sin comprobar
 - La descarga del aviso en **Windows** (WinHTTP) está compilada pero **no se ha ejecutado en un
   Windows real**; en Linux (con `curl`) sí, con las 12 pruebas de arriba.

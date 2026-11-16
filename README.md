@@ -161,7 +161,7 @@ Hacen falta `git`, `cmake`, `g++` (o `clang++`), `ninja` y las cabeceras de SDL2
 (`sudo apt install build-essential cmake git ninja-build libsdl2-dev python3`).
 
 ```sh
-tools/construir.sh /ruta/a/tu_rom.gba     # o deja la ROM en roms/ y no pases nada
+bash tools/construir.sh /ruta/a/tu_rom.gba     # o deja la ROM en roms/ y no pases nada
 cd juego && ./jugar.sh
 ```
 
@@ -464,8 +464,8 @@ aplicados, y la herramienta de partidas con PowerShell 7:
 
 ```sh
 python3 tools/aplicar_parches.py <carpeta de gbarecomp>     # el commit de tools/construir.sh
-tools/pruebas/probar_filtros.sh <carpeta de gbarecomp>
-tools/pruebas/probar_aviso.sh                               # el aviso de versión, contra un servidor local
+bash tools/pruebas/probar_filtros.sh <carpeta de gbarecomp>
+bash tools/pruebas/probar_aviso.sh                          # el aviso de versión, contra un servidor local
 pwsh tools/pruebas/probar_partidas.ps1
 pwsh tools/pruebas/comprobar_sintaxis.ps1
 ```

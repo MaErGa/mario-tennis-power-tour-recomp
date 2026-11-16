@@ -67,10 +67,12 @@ jobs:
           python3 tools/aplicar_parches.py externo/recomp-ui
 
       - name: Pruebas de los filtros de imagen
-        run: tools/pruebas/probar_filtros.sh externo/gbarecomp
+        # Con «bash» explícito: un repositorio subido desde Windows pierde el permiso de ejecución
+        # de los .sh y llamarlos directamente da «Permission denied».
+        run: bash tools/pruebas/probar_filtros.sh externo/gbarecomp
 
       - name: Pruebas del aviso de versión nueva
-        run: tools/pruebas/probar_aviso.sh
+        run: bash tools/pruebas/probar_aviso.sh
 
       - name: Pruebas de la herramienta de partidas (PowerShell 7)
         shell: pwsh
