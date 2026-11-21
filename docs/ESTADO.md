@@ -1,6 +1,6 @@
 # Estado del proyecto (leer al retomar)
 
-Última comprobación: 15-nov-2026 (versión 0.4.4), en Linux (sandbox de 2 núcleos, sin tarjeta de
+Última comprobación: 20-nov-2026 (versión 0.4.5), en Linux (sandbox de 2 núcleos, sin tarjeta de
 sonido, sin Windows).
 
 ## Qué funciona
@@ -107,6 +107,13 @@ sonido, sin Windows).
   `mtp_version_instalada`), declaradas dentro de `#if defined(MTP_EXTRAS_MENU)` (la define CMake
   solo en `game_launcher_ui`); sin la definición, el parche usa un sustituto que devuelve «».
   `tools/pruebas/probar_aviso.sh` lo prueba contra un servidor local (12 casos) y lo ejecuta la CI.
+- **Partidas en el menú de arranque (0.4.5, `parches/recomp-ui-0006-…patch`, `src/partidas.cpp`)**:
+  botón «Partidas» → importar (con comprobación, recorte de relleno, copia previa y confirmación),
+  exportar, copia manual y recuperar copias. Se comprobó con la ventana real del menú en Linux/Xvfb
+  (importar un `.sav` de 128 KiB con relleno: recortado y copia creada; exportar: idéntico al
+  original; recuperar) y con `tools/pruebas/probar_partidas_menu.sh` (90 comprobaciones; la CI lo
+  ejecuta). Está en el menú de arranque a propósito (con el juego abierto, al cerrarse volvería a
+  guardar encima).
 - **Perfil por mando**: es de recomp-ui (Guardar/Renombrar/Borrar perfil, por identificador de
   mando); traducido en 0.4.3. No se ha probado con un mando físico.
 - **Captura de pantalla (0.4.0, parche 0007)**: tecla `Screenshot` (F10 por defecto) →
@@ -155,7 +162,7 @@ sonido, sin Windows).
 
 ## Qué no se ha comprobado
 
-- **Novedades de 0.3.0 a 0.4.4 en un Windows real** (además de lo dicho arriba sobre el DPI; F10
+- **Novedades de 0.3.0 a 0.4.5 en un Windows real** (además de lo dicho arriba sobre el DPI; F10
   **sí** se comprobó en un Windows real el 16-nov-2026 con capturas del juego; si en otro equipo
   no responde, `[KeyMap] Screenshot = F11`): los filtros y el avance rápido se
   dibujan con `SDL_Renderer` (Direct3D 11 en Windows) y solo se vieron y midieron con el de

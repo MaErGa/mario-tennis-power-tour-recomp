@@ -55,6 +55,22 @@ set(MTP_URL_VERSION "https://raw.githubusercontent.com/MaErGa/MarioTennisPowerTo
 set(RECOMP_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/externo/recomp-ui"
     CACHE PATH "Ruta al checkout de recomp-ui (el menú)")
 
+# Juego en red: el cable link de la GBA por red (IP directa, LAN o sala en línea), con
+# rollback. Lo trae el framework con recomp-net y rbengine (submódulos que descarga
+# tools/construir.sh) y lo maneja el menú (pestaña «Netplay»). Necesita el menú. Si falta
+# algo se desactiva solo y el juego se compila como antes. Apagar: -DMTP_NETPLAY=OFF.
+option(MTP_NETPLAY "Compilar el juego en red (cable link por red; experimental, necesita el parche gbarecomp-0009)" OFF)
+if(MTP_NETPLAY)
+    if(NOT MTP_MENU OR
+       NOT EXISTS "${GBARECOMP_ROOT}/external/recomp-net/CMakeLists.txt" OR
+       NOT EXISTS "${GBARECOMP_ROOT}/external/rbengine/CMakeLists.txt")
+        message(STATUS "MTP: falta el menú, recomp-net o rbengine: se compila SIN juego en red.")
+        set(MTP_NETPLAY OFF)
+    else()
+        set(GBARECOMP_NETPLAY ON CACHE BOOL "Juego en red del framework" FORCE)
+    endif()
+endif()
+
 # La BIOS libre recompilada (tools/construir.sh) se queda aquí, fuera del
 # checkout del framework.
 # Hay que fijarla ANTES de add_subdirectory para que gbarecomp la enlace.
@@ -123,7 +139,7 @@ add_executable(MarioTennisPowerTourRecomp
     ${MTP_GENERATED})
 
 if(MTP_MENU)
-    target_sources(MarioTennisPowerTourRecomp PRIVATE src/aviso_actualizacion.cpp)
+    target_sources(MarioTennisPowerTourRecomp PRIVATE src/aviso_actualizacion.cpp src/partidas.cpp)
     target_compile_definitions(MarioTennisPowerTourRecomp PRIVATE
         "MTP_VERSION=\"${MTP_VERSION_TXT}\""
         "MTP_URL_VERSION_DEFECTO=\"${MTP_URL_VERSION}\"")
@@ -169,6 +185,10 @@ if(MTP_MENU)
     # CONSOLE gba: solo se incluyen los recursos (mando, fuentes) de GBA.
     recomp_target_launcher_ui(game_launcher_ui CONSOLE gba)
     recomp_target_launcher_language(game_launcher_ui "${MTP_IDIOMA_MENU}")
+    # Pestaña «Netplay» del menú (salas, IP directa) y la ejecución de la partida en red.
+    if(MTP_NETPLAY)
+        gbarecomp_target_netplay_launcher(game_launcher_ui)
+    endif()
     # El menú muestra el aviso de versión nueva que da src/aviso_actualizacion.cpp.
     target_compile_definitions(game_launcher_ui PRIVATE MTP_EXTRAS_MENU=1)
     set_target_properties(game_launcher_ui PROPERTIES POSITION_INDEPENDENT_CODE ON)
@@ -182,6 +202,14 @@ if(MTP_MENU)
     set_property(SOURCE src/main.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS GBAGAME_RECOMP_UI)
     set(MTP_MENU_LIBS game_launcher_ui)
+    if(MTP_NETPLAY)
+        list(APPEND MTP_MENU_LIBS gbarecomp_netplay)
+        # Identidad exacta de esta compilación (fuentes del framework, de este proyecto, del
+        # código generado y de la red): dos jugadores solo se conectan si es la misma.
+        gbarecomp_target_netplay_identity(MarioTennisPowerTourRecomp
+            "${CMAKE_CURRENT_SOURCE_DIR}" "${MTP_GENERATED_DIR}")
+        target_compile_definitions(MarioTennisPowerTourRecomp PRIVATE MTP_NETPLAY=1)
+    endif()
 endif()
 
 # Las bibliotecas del runtime se necesitan unas a otras: el enlazador GNU

@@ -8,6 +8,7 @@
 //   - la conexión con el menú de configuración;
 //   - los modos de pantalla (3:2 nativo, 16:9 estirado, 16:9 con barras difuminadas).
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -21,6 +22,12 @@
 
 #if defined(GBAGAME_RECOMP_UI)
 #include "game_launcher_boot.h"
+#endif
+
+#if defined(MTP_NETPLAY)
+#include "gba_netplay_build_identity.h"  // GBARECOMP_NETPLAY_BUILD_ID (lo genera CMake)
+#include "multiplayer_launch.h"
+#include "multiplayer_session.h"  // GbaInstance
 #endif
 
 namespace {
@@ -97,6 +104,30 @@ int forzar_interprete(std::uint32_t pc, int thumb) {
     (void)thumb;
     return 0;
 }
+
+#if defined(MTP_NETPLAY)
+// Cada consola virtual de una partida en red lleva sus propios ganchos de ejecución: sin esto
+// no tendría los dos de arriba (p. ej. el retorno desalineado de IntrMain no se corregiría).
+//
+// En red no existe el «puente» de subárbol del modo normal: todo lo que no tenga entrada
+// nativa estática y viva en IWRAM (p. ej. el descompresor de 0x03001400, que no se recompila
+// a propósito) se interpreta paso a paso desde el planificador de la sesión.
+int forzar_interprete_de_red(std::uint32_t pc, int thumb) {
+    const int forzar = forzar_interprete(pc, thumb);
+    if (forzar != 0) return forzar;
+    if (pc >= 0x03000000u && pc < 0x03008000u) {
+        // Un PC de ARM desalineado lo realinea despacho_ram: no se interpreta.
+        if (!thumb && (pc & 3u) != 0u) return 0;
+        if (!runtime_has_static_entry(pc, thumb)) return 1;
+    }
+    return 0;
+}
+
+void preparar_instancia_de_red(gbarecomp::GbaInstance& maquina) {
+    maquina.execution.ram_dispatch = despacho_ram;
+    maquina.execution.force_interp = forzar_interprete_de_red;
+}
+#endif
 
 // ── Opciones de pantalla del menú («relación de aspecto») ──────────────────────
 // La GBA saca 240x160 (3:2). En un monitor 16:9 hay tres maneras de presentarla:
@@ -198,6 +229,26 @@ void entorno_por_defecto(const char* nombre, const char* valor) {
 #endif
 }
 
+// Opciones de juego en red por IP directa (--netplay-bind, --netplay-peer, --netplay-seat,
+// --netplay-session, --netplay-delay…): las quita de la lista y deja el resultado en
+// opts.netplay. Devuelve false si alguna es inválida (ya avisó por la salida de errores).
+// Sin juego en red compilado no hace nada.
+bool leer_opciones_de_red(std::vector<std::string>& args, gbarecomp::RunOptions& opts) {
+#if defined(MTP_NETPLAY)
+    if (!opts.netplay) return true;
+    try {
+        gbarecomp::parse_gba_netplay_arguments(args, *opts.netplay);
+    } catch (const std::exception& e) {
+        std::fprintf(stderr, "[netplay] %s\n", e.what());
+        return false;
+    }
+#else
+    (void)args;
+    (void)opts;
+#endif
+    return true;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -224,6 +275,16 @@ int main(int argc, char** argv) {
     opts.builtin_rom_sha1  = "d61990974040d405b5bf8436ac8e1e0beb0f7964";
     opts.builtin_rom_crc32 = 0xC8DB4F60u;
 
+#if defined(MTP_NETPLAY)
+    // Juego en red por «cable link». Los dos jugadores necesitan la misma ROM y la misma
+    // compilación (la identidad la calcula CMake con todas las fuentes); la ROM y las partidas
+    // nunca viajan por la red, solo los mandos. Hasta 2 consolas.
+    opts.netplay = gbarecomp::make_gba_netplay_launch(
+        "mario-tennis-power-tour-eur", GBARECOMP_NETPLAY_BUILD_ID,
+        "0a27490e4cfa8ea137b82d9157bc647c8b6df132f98b85999934d9b8784af622",  // SHA-256 de la ROM
+        preparar_instancia_de_red);
+#endif
+
     // Menú previo al arranque.
     opts.launcher_region      = "EUR";
     opts.launcher_game_config = "game.toml";
@@ -243,6 +304,7 @@ int main(int argc, char** argv) {
 
 #if defined(GBAGAME_RECOMP_UI)
     std::vector<std::string> args(argv, argv + argc);
+    if (!leer_opciones_de_red(args, opts)) return 2;
     if (game_launcher_preboot(args, opts)) return 0;  // la persona salió del menú
     aplicar_modo_pantalla(args);
     std::vector<char*> av;
@@ -252,6 +314,7 @@ int main(int argc, char** argv) {
     return gbarecomp::run_game(static_cast<int>(args.size()), av.data(), opts);
 #else
     std::vector<std::string> args(argv, argv + argc);
+    if (!leer_opciones_de_red(args, opts)) return 2;
     aplicar_modo_pantalla(args);
     std::vector<char*> av;
     av.reserve(args.size() + 1);

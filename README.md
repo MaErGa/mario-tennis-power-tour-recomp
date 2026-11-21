@@ -241,7 +241,7 @@ hay junto a `config.ini`.
 
 Al abrir el menú de arranque, el programa pide **una vez** y en segundo plano el archivo `VERSION`
 del repositorio (una petición `GET` por HTTPS de unos pocos bytes; no envía nada tuyo). Si el
-número es mayor que el instalado, sale una franja arriba con «Hay una versión nueva: 0.4.5 (tienes la 0.4.4)…» y un
+número es mayor que el instalado, sale una franja arriba con «Hay una versión nueva: 0.4.6 (tienes la 0.4.5)…» y un
 botón **Ocultar** (solo en la pantalla de inicio del menú). Es **solo un aviso**: no descarga ni instala nada; para actualizar descarga el
 zip nuevo y usa `ACTUALIZAR.bat` (ver arriba). Sin internet, con la dirección caída o con una
 respuesta que no sea un número de versión, simplemente no sale nada.
@@ -378,12 +378,20 @@ El juego guarda en una **SRAM de 32 KiB**, y su archivo `.sav` es esa memoria ta
 BizHawk, no$gba y los flashcarts). Está junto a la ROM
 (`roms\mario_tennis_power_tour_eur.sav` dentro de la carpeta del juego).
 
-- **Traer una partida de un emulador:** copia su archivo `.sav` (o `.srm`) con ese nombre
+- **Desde el menú de arranque (0.4.5):** pulsa **«Partidas»** en la cabecera del menú que sale
+  antes de empezar el juego. Ahí tienes *Importar de un emulador…*, *Exportar a un emulador…*,
+  *Hacer copia ahora*, *Abrir carpeta* y la lista de copias de seguridad con *Recuperar*. Elige
+  el archivo con el selector del sistema (o el explorador integrado), el menú lo comprueba y te
+  pide confirmar; antes de sustituir tu partida guarda una copia en `copias-de-partidas`
+  (junto a `config.ini`). Está en el menú de arranque y no en el menú de `Esc` de dentro del
+  partido a propósito: con el juego en marcha, al cerrarse volvería a guardar encima de la
+  partida importada.
+- **Traer una partida de un emulador (a mano):** copia su archivo `.sav` (o `.srm`) con ese nombre
   sobre el de aquí, o usa **`PARTIDAS.bat`** (en el menú Inicio: *Partidas de Mario Tennis
   Power Tour*), que lo hace guardando antes una copia de la tuya.
-- **Llevar tu partida a un emulador:** `PARTIDAS.bat` → *Exportar*. Para mGBA y VBA el
-  archivo debe llamarse como la ROM de ese emulador, pero con la extensión `.sav`
-  (RetroArch: `.srm`).
+- **Llevar tu partida a un emulador:** *Partidas* → *Exportar a un emulador…* (o `PARTIDAS.bat` →
+  *Exportar*). Para mGBA y VBA el archivo debe llamarse como la ROM de ese emulador, pero con la
+  extensión `.sav` (RetroArch: `.srm`).
 - Si el archivo viene con **relleno o repetido hasta 64 o 128 KiB**, el juego lo recorta a
   los 32 KiB reales al cargarlo, anota el aviso en la consola y deja una copia
   `.sav.original`. Si lo que sobra son datos distintos (otro tipo de guardado u otro
@@ -400,7 +408,10 @@ BizHawk, no$gba y los flashcarts). Está junto a la ROM
 
 *No se ha probado en un Windows real.* Sí con PowerShell 7 en Linux (pruebas automáticas
 de importar, exportar, copias y restaurar), y el juego compilado cargó y recortó un `.sav`
-de 128 KiB con relleno. Lo que **no** se ha hecho es traer una partida jugada de verdad
+de 128 KiB con relleno. La pantalla *Partidas* del menú (0.4.5) se probó con la ventana real en
+Linux/Xvfb (importar con relleno y copia previa, exportar, recuperar) y su lógica con
+`tools/pruebas/probar_partidas_menu.sh` (90 comprobaciones); el selector nativo de archivos de Windows
+y el explorador de carpetas no se han visto en un Windows real. Lo que **no** se ha hecho es traer una partida jugada de verdad
 desde un emulador.
 
 ## Qué incluye y qué no
@@ -466,6 +477,7 @@ aplicados, y la herramienta de partidas con PowerShell 7:
 python3 tools/aplicar_parches.py <carpeta de gbarecomp>     # el commit de tools/construir.sh
 bash tools/pruebas/probar_filtros.sh <carpeta de gbarecomp>
 bash tools/pruebas/probar_aviso.sh                          # el aviso de versión, contra un servidor local
+bash tools/pruebas/probar_partidas_menu.sh                  # importar/exportar partidas del menú (compila src/partidas.cpp)
 pwsh tools/pruebas/probar_partidas.ps1
 pwsh tools/pruebas/comprobar_sintaxis.ps1
 ```

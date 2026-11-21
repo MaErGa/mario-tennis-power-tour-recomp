@@ -1,0 +1,441 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index 2d82023..379108f 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -97,6 +97,7 @@ static const char* ui_text(const char* en) {
+ // PARCHE mario-tennis: aviso de versión nueva. Lo da el anfitrión (src/aviso_actualizacion.cpp)
+ // cuando el proyecto define MTP_EXTRAS_MENU; sin él, el menú no avisa de nada.
+ #if defined(MTP_EXTRAS_MENU)
++#include "partidas.h"                                 // importar/exportar partidas (src/partidas.cpp del anfitrión)
+ extern "C" const char* mtp_aviso_actualizacion(void);   // "" o la versión nueva, p. ej. "0.4.4"
+ extern "C" const char* mtp_version_instalada(void);
+ #else
+@@ -5764,6 +5765,310 @@ void draw_capturas(LauncherModel* m, const LauncherTheme& th) {
+     end_panel();
+ }
+ 
++// ═══ PARCHE mario-tennis: pantalla «Partidas» (importar y exportar partidas de emulador) ═══
++// La lógica (comprobar el archivo, copias de seguridad, escribir) está en el anfitrión
++// (src/partidas.cpp, con sus propias pruebas); aquí solo se dibuja y se pregunta. El menú de
++// arranque se abre ANTES de que el juego arranque, así que tocar la partida es seguro.
++#if defined(MTP_EXTRAS_MENU)
++namespace partidas {
++
++constexpr int kMaximoCopias = 30;
++std::vector<MtpCopia> g_copias;
++MtpPartidaInfo g_info{};
++bool g_listado = false;
++std::string g_mensaje;               // último resultado, ya traducido
++bool g_mensaje_es_error = false;
++std::string g_pendiente;             // archivo elegido, a la espera de que se confirme
++bool g_pendiente_es_copia = false;   // true: es una copia de seguridad (recuperar)
++MtpPartidaResultado g_previa{};      // comprobación del archivo pendiente
++
++void refrescar(const char* rom) {
++    g_copias.assign(kMaximoCopias, MtpCopia{});
++    const int n = mtp_partida_copias(g_copias.data(), kMaximoCopias);
++    g_copias.resize((size_t)(n < 0 ? 0 : n));
++    mtp_partida_info(rom, &g_info);
++    g_listado = true;
++}
++
++void liberar() {
++    g_copias.clear();
++    g_listado = false;
++    g_mensaje.clear();
++    g_mensaje_es_error = false;
++    g_pendiente.clear();
++    g_pendiente_es_copia = false;
++}
++
++void avisar(bool error, const std::string& texto) {
++    g_mensaje = texto;
++    g_mensaje_es_error = error;
++}
++
++const char* texto_error(int codigo) {
++    switch (codigo) {
++    case MTP_PARTIDA_ERR_NO_EXISTE: return ui_text("That file does not exist or cannot be read.");
++    case MTP_PARTIDA_ERR_VACIO: return ui_text("The file is empty.");
++    case MTP_PARTIDA_ERR_ESTADO_RAPIDO:
++        return ui_text("That looks like an emulator save state, not a save game. Save states are dumps of that emulator's memory and do not work here. Use the normal save game: save from inside the game in the emulator and look for the .sav file (mGBA, VBA-M, no$gba) or .srm file (RetroArch) next to the ROM or in its saves folder.");
++    case MTP_PARTIDA_ERR_OTRO_FORMATO:
++        return ui_text("The file is bigger than a save of this game (32 KiB) and the extra part is not padding: it looks like another type of save (Flash or EEPROM), another game, or a program that saves in another format. Nothing was changed.");
++    case MTP_PARTIDA_ERR_SIN_PARTIDA: return ui_text("No saved game yet. Play and save inside the game first.");
++    case MTP_PARTIDA_ERR_ESCRIBIR: return ui_text("Could not write the file. Nothing was changed.");
++    case MTP_PARTIDA_ERR_SIN_ROM: return ui_text("Choose the game's ROM first so the save can be located.");
++    case MTP_PARTIDA_ERR_DEMASIADO_GRANDE: return ui_text("The file is too big to be a save.");
++    default: return ui_text("Something went wrong.");
++    }
++}
++
++// Notas sobre lo que se hizo con el archivo (recortado, completado, vacío), una por línea.
++std::string notas(const MtpPartidaResultado& r) {
++    std::string s;
++    char buf[320];
++    if (r.recortado) {
++        std::snprintf(buf, sizeof(buf),
++            ui_text("The file was %llu bytes; the extra part was only padding, so the first 32 KiB were used."),
++            r.bytes_origen);
++        s += std::string("\n- ") + buf;
++    }
++    if (r.completado) {
++        std::snprintf(buf, sizeof(buf),
++            ui_text("The file was only %llu bytes (a save is 32768): it was padded to 32 KiB."), r.bytes_origen);
++        s += std::string("\n- ") + buf;
++    }
++    if (r.vacia) s += std::string("\n- ") + ui_text("Note: this save is empty (it has no progress).");
++    return s;
++}
++
++// «14/11/2026  17:32»
++std::string fecha(long long t) {
++    if (t <= 0) return "-";
++    const std::time_t tt = (std::time_t)t;
++    std::tm local{};
++#if defined(_WIN32)
++    localtime_s(&local, &tt);
++#else
++    localtime_r(&tt, &local);
++#endif
++    char buf[48];
++    std::strftime(buf, sizeof(buf), "%d/%m/%Y  %H:%M", &local);
++    return buf;
++}
++
++std::string nombre_de(const char* ruta) {
++    const char* base = ruta;
++    for (const char* q = ruta; *q; ++q)
++        if (*q == '/' || *q == '\\') base = q + 1;
++    return base;
++}
++
++void abrir_carpeta_partida() {
++    std::filesystem::path p(g_info.ruta);
++    std::error_code ec;
++    const std::filesystem::path dir = p.parent_path();
++    if (dir.empty() || !std::filesystem::is_directory(dir, ec)) return;
++    std::string url, error;
++    if (launcher_directory_url(dir.u8string().c_str(), url, error)) (void)SDL_OpenURL(url.c_str());
++}
++
++void abrir_carpeta_copias() {
++    std::error_code ec;
++    const std::filesystem::path dir(mtp_partida_carpeta_copias());
++    std::filesystem::create_directories(dir, ec);
++    std::string url, error;
++    if (launcher_directory_url(dir.u8string().c_str(), url, error)) (void)SDL_OpenURL(url.c_str());
++}
++
++// Pone el archivo pendiente (importar o recuperar) tras la confirmación.
++void aplicar_pendiente(const std::string& rom) {
++    MtpPartidaResultado r;
++    if (g_pendiente_es_copia) mtp_partida_restaurar(rom.c_str(), g_pendiente.c_str(), &r);
++    else mtp_partida_importar(rom.c_str(), g_pendiente.c_str(), &r);
++    g_pendiente.clear();
++    if (r.codigo != MTP_PARTIDA_OK) {
++        avisar(true, texto_error(r.codigo));
++    } else {
++        std::string s = ui_text(g_pendiente_es_copia
++            ? "Backup restored. When you start the game, your progress will appear."
++            : "Save imported. When you start the game, your progress will appear.");
++        if (r.copia[0]) s += std::string("\n") + ui_text("Your previous save was backed up first.");
++        s += notas(r);
++        avisar(false, s);
++    }
++    refrescar(rom.c_str());
++}
++
++}  // namespace partidas
++
++void draw_partidas(LauncherModel* m, const LauncherTheme& th) {
++    using namespace partidas;
++    const std::string rom = m->rom_full;
++    if (!g_listado) refrescar(rom.c_str());
++    if (!begin_panel("partidas_page", 0, false)) {
++        end_panel();
++        return;
++    }
++    eyebrow("SAVES");
++    const bool hay_rom = !rom.empty();
++    const float sep = px(8.0f);
++
++    // ── Estado de la partida actual ───────────────────────────────────────────
++    if (!hay_rom) {
++        ImGui::TextColored(col(th.warn), "%s", texto_error(MTP_PARTIDA_ERR_SIN_ROM));
++    } else {
++        ImGui::PushTextWrapPos(0.0f);
++        ImGui::TextColored(col(th.text_muted), ui_text("Your save file: %s"), g_info.ruta);
++        if (!g_info.existe) {
++            ImGui::TextColored(col(th.text_muted), "%s", texto_error(MTP_PARTIDA_ERR_SIN_PARTIDA));
++        } else {
++            ImGui::TextColored(col(th.text), ui_text("Last saved: %s  (%llu bytes)"),
++                               fecha(g_info.modificada).c_str(), g_info.bytes);
++            if (g_info.vacia)
++                ImGui::TextColored(col(th.warn), "%s", ui_text("This save is empty: it has no progress."));
++        }
++        ImGui::PopTextWrapPos();
++    }
++    ImGui::Dummy(ImVec2(0, px(8.0f)));
++
++    // ── Acciones ──────────────────────────────────────────────────────────────
++    const float bw = px(210.0f), bh = px(34.0f);
++    ImGui::BeginDisabled(!hay_rom);
++    if (ImGui::Button(ui_text("Import from emulator..."), ImVec2(bw, bh))) {
++        ui_pick_file(m, ui_text("Choose the save from your emulator (.sav / .srm)"), {"*.sav", "*.srm"},
++                     ui_text("GBA save (.sav .srm)"), [](const char* path) {
++                         if (!path) return;
++                         MtpPartidaResultado r;
++                         mtp_partida_comprobar(path, &r);
++                         if (r.codigo != MTP_PARTIDA_OK) {
++                             g_pendiente.clear();
++                             avisar(true, texto_error(r.codigo));
++                             return;
++                         }
++                         g_pendiente = path;
++                         g_pendiente_es_copia = false;
++                         g_previa = r;
++                         g_mensaje.clear();
++                     });
++    }
++    ImGui::SameLine(0, sep);
++    ImGui::BeginDisabled(!g_info.existe);
++    if (ImGui::Button(ui_text("Export for emulator..."), ImVec2(bw, bh))) {
++        ui_pick_save_file(m, ui_text("Save the game for an emulator"), {"*.sav"}, ui_text("GBA save (.sav)"),
++                          [rom](const char* path) {
++                              if (!path) return;
++                              MtpPartidaResultado r;
++                              mtp_partida_exportar(rom.c_str(), path, &r);
++                              g_pendiente.clear();
++                              if (r.codigo != MTP_PARTIDA_OK) {
++                                  avisar(true, texto_error(r.codigo));
++                                  return;
++                              }
++                              char buf[1400];
++                              std::snprintf(buf, sizeof(buf), ui_text("Save exported to: %s"), r.copia);
++                              avisar(false, std::string(buf) + "\n" +
++                                  ui_text("To use it in an emulator, put it next to your ROM with the SAME NAME as the ROM and the .sav extension (RetroArch: the saves folder, .srm extension)."));
++                          });
++    }
++    ImGui::SameLine(0, sep);
++    if (ImGui::Button(ui_text("Back up now"), ImVec2(bw, bh))) {
++        MtpPartidaResultado r;
++        mtp_partida_copia(rom.c_str(), &r);
++        g_pendiente.clear();
++        if (r.codigo != MTP_PARTIDA_OK) avisar(true, texto_error(r.codigo));
++        else avisar(false, std::string(ui_text("Backup created.")) + "\n" + r.copia);
++        refrescar(rom.c_str());
++    }
++    ImGui::EndDisabled();   // !g_info.existe
++    ImGui::SameLine(0, sep);
++    if (ImGui::Button(ui_text("Open folder"), ImVec2(px(150.0f), bh))) abrir_carpeta_partida();
++    ImGui::EndDisabled();   // !hay_rom
++    ImGui::Dummy(ImVec2(0, px(8.0f)));
++
++    // ── Resultado de la última acción ─────────────────────────────────────────
++    if (!g_mensaje.empty()) {
++        ImGui::PushTextWrapPos(0.0f);
++        ImGui::TextColored(g_mensaje_es_error ? col(th.warn) : col(th.good), "%s", g_mensaje.c_str());
++        ImGui::PopTextWrapPos();
++        ImGui::Dummy(ImVec2(0, px(8.0f)));
++    }
++
++    // ── Confirmación antes de sustituir la partida ────────────────────────────
++    if (!g_pendiente.empty()) {
++        ImGui::Separator();
++        ImGui::Dummy(ImVec2(0, px(4.0f)));
++        ImGui::PushTextWrapPos(0.0f);
++        ImGui::TextColored(col(th.text), "%s", ui_text(g_pendiente_es_copia ? "This backup will be restored:"
++                                                                            : "This save will be used:"));
++        ImGui::TextColored(col(th.accent), "%s",
++                           (g_pendiente_es_copia ? nombre_de(g_pendiente.c_str()) : g_pendiente).c_str());
++        const std::string n = notas(g_previa);
++        if (!n.empty()) ImGui::TextColored(col(th.warn), "%s", n.c_str() + 1);   // sin el primer salto de línea
++        if (g_info.existe)
++            ImGui::TextColored(col(th.text_muted), "%s",
++                               ui_text("Your current save is backed up first, so nothing is lost."));
++        ImGui::PopTextWrapPos();
++        ImGui::Dummy(ImVec2(0, px(6.0f)));
++        if (ImGui::Button(ui_text("Confirm"), ImVec2(bw, bh))) aplicar_pendiente(rom);
++        ImGui::SameLine(0, sep);
++        if (ImGui::Button(ui_text("Cancel"), ImVec2(bw, bh))) g_pendiente.clear();
++        ImGui::Dummy(ImVec2(0, px(8.0f)));
++    }
++
++    // ── Copias de seguridad ───────────────────────────────────────────────────
++    ImGui::Separator();
++    ImGui::Dummy(ImVec2(0, px(4.0f)));
++    ImGui::AlignTextToFramePadding();
++    ImGui::TextColored(col(th.text), "%s", ui_text("Backups"));
++    {
++        const float w = px(150.0f);
++        ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - w);
++        const std::string etiqueta = std::string(ui_text("Open folder")) + "##copias";
++        if (ImGui::Button(etiqueta.c_str(), ImVec2(w, px(28)))) abrir_carpeta_copias();
++    }
++    if (g_copias.empty()) {
++        ImGui::TextColored(col(th.text_muted), "%s", ui_text("No backups yet."));
++    } else {
++        const float w = px(130.0f);
++        for (int i = 0; i < (int)g_copias.size(); ++i) {
++            ImGui::PushID(i);
++            ImGui::AlignTextToFramePadding();
++            ImGui::TextColored(col(th.text), "%s", fecha(g_copias[i].modificada).c_str());
++            ImGui::SameLine(0, px(14.0f));
++            ImGui::TextColored(col(th.text_muted), "%s", nombre_de(g_copias[i].ruta).c_str());
++            ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - w);
++            ImGui::BeginDisabled(!hay_rom);
++            if (ImGui::Button(ui_text("Restore"), ImVec2(w, px(28)))) {
++                MtpPartidaResultado r;
++                mtp_partida_comprobar(g_copias[i].ruta, &r);
++                if (r.codigo != MTP_PARTIDA_OK) {
++                    g_pendiente.clear();
++                    avisar(true, texto_error(r.codigo));
++                } else {
++                    g_pendiente = g_copias[i].ruta;
++                    g_pendiente_es_copia = true;
++                    g_previa = r;
++                    g_mensaje.clear();
++                }
++            }
++            ImGui::EndDisabled();
++            ImGui::PopID();
++        }
++    }
++
++    // ── Avisos fijos ──────────────────────────────────────────────────────────
++    ImGui::Dummy(ImVec2(0, px(10.0f)));
++    ImGui::Separator();
++    ImGui::Dummy(ImVec2(0, px(4.0f)));
++    ImGui::PushTextWrapPos(0.0f);
++    ImGui::TextColored(col(th.text_muted), "%s",
++        ui_text("Emulator save states cannot be imported: they are dumps of that emulator's memory. Use the normal save game (the .sav or .srm file). This program's own states (F1-F9) are a separate format."));
++    ImGui::Dummy(ImVec2(0, px(4.0f)));
++    ImGui::TextColored(col(th.text_muted), "%s",
++        ui_text("Close any other window of the game before importing, or it would save over the imported game."));
++    ImGui::PopTextWrapPos();
++    end_panel();
++}
++#endif  // MTP_EXTRAS_MENU
++
+ /* Draw a bind row's LABEL and leave the cursor at `label_col_w` from the start
+  * of this table cell, ready for the bind chip.
+  *
+@@ -14358,11 +14663,21 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+         const float y = hdr_top + px(6.0f);
+         if (m->view == LNG_VIEW_DASHBOARD) {
+             const int count = 2 + (m->mods ? 1 : 0) +   // PARCHE mario-tennis: +1 por «Capturas»
++#if defined(MTP_EXTRAS_MENU)
++                              1 +                       // PARCHE mario-tennis: +1 por «Partidas»
++#endif
+                               (m->has_assist_tools ? 1 : 0) +
+                               ((m->credits_text && m->credits_text[0]) ? 1 : 0);
+             const float w = px(110.0f);
+             const float total = w * count + gap * (count - 1);
+             ImGui::SetCursorPos(ImVec2(right - total, y));
++#if defined(MTP_EXTRAS_MENU)
++            if (ImGui::Button(ui_text("Saves"), ImVec2(w, px(34)))) {
++                partidas::liberar();   // se vuelve a mirar la partida y las copias al entrar
++                launcher_model_set_view(m, LNG_VIEW_PARTIDAS);
++            }
++            ImGui::SameLine(0, gap);
++#endif
+             if (ImGui::Button(ui_text("Captures"), ImVec2(w, px(34)))) {
+                 capturas::liberar();   // se vuelve a listar la carpeta al entrar
+                 launcher_model_set_view(m, LNG_VIEW_CAPTURES);
+@@ -14473,6 +14788,9 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+     if (body_h < px(80.0f)) body_h = px(80.0f);
+     begin_container("body", ImVec2(0, body_h));
+     if (m->view != LNG_VIEW_CAPTURES && capturas::g_listado) capturas::liberar();   // PARCHE mario-tennis
++#if defined(MTP_EXTRAS_MENU)
++    if (m->view != LNG_VIEW_PARTIDAS && partidas::g_listado) partidas::liberar();   // PARCHE mario-tennis
++#endif
+     switch (m->view) {
+         case LNG_VIEW_DASHBOARD:  draw_dashboard(m, th, logical_w); break;
+         case LNG_VIEW_SETTINGS:   draw_settings(m, th);             break;
+@@ -14484,6 +14802,11 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+         case LNG_VIEW_ASSIST_TOOLS: draw_assist_tools(m, th);        break;
+         case LNG_VIEW_CREDITS:      draw_credits(m, th);             break;
+         case LNG_VIEW_CAPTURES:     draw_capturas(m, th);            break;
++#if defined(MTP_EXTRAS_MENU)
++        case LNG_VIEW_PARTIDAS:     draw_partidas(m, th);            break;
++#else
++        case LNG_VIEW_PARTIDAS:     break;
++#endif
+         case LNG_VIEW_LOBBY:        draw_lobby(m, th);               break;
+     }
+     end_container();
+@@ -15284,6 +15607,9 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
+     launcher_input_shutdown();
+     launcher_boot_timing_mark("rui:input_closed");
+     capturas::liberar();   // PARCHE mario-tennis
++#if defined(MTP_EXTRAS_MENU)
++    partidas::liberar();   // PARCHE mario-tennis
++#endif
+     launcher_texture_free(&g_boxart);
+     launcher_texture_free(&g_pad);
+     launcher_texture_free(&g_pad_analog);
+diff --git a/src/common/launcher_i18n.cpp b/src/common/launcher_i18n.cpp
+index 04984c6..9b709a1 100644
+--- a/src/common/launcher_i18n.cpp
++++ b/src/common/launcher_i18n.cpp
+@@ -580,6 +580,46 @@ static const LauncherI18nEntry kSpanish[] = {
+     {"Could not read this image.", "No se pudo leer esta imagen."},
+     {"Hide", "Ocultar"},
+     {"A new version is available: %s (you have %s). Download the new zip and run its ACTUALIZAR.bat.", "Hay una versión nueva: %s (tienes la %s). Descarga el zip nuevo y ejecuta su ACTUALIZAR.bat."},
++    // ---- 0.4.5: pantalla «Partidas» (importar / exportar partidas de emulador) ----
++    {"Saves", "Partidas"},
++    {"SAVES", "PARTIDAS"},
++    {"Your save file: %s", "Tu partida: %s"},
++    {"Last saved: %s  (%llu bytes)", "Última vez que se guardó: %s  (%llu bytes)"},
++    {"This save is empty: it has no progress.", "Esta partida está vacía: no tiene ningún progreso."},
++    {"Import from emulator...", "Importar de un emulador..."},
++    {"Export for emulator...", "Exportar a un emulador..."},
++    {"Back up now", "Hacer copia ahora"},
++    {"Choose the save from your emulator (.sav / .srm)", "Elige la partida de tu emulador (.sav / .srm)"},
++    {"GBA save (.sav .srm)", "Partida de GBA (.sav .srm)"},
++    {"Save the game for an emulator", "Guardar la partida para un emulador"},
++    {"GBA save (.sav)", "Partida de GBA (.sav)"},
++    {"This save will be used:", "Se va a usar esta partida:"},
++    {"This backup will be restored:", "Se va a recuperar esta copia:"},
++    {"Your current save is backed up first, so nothing is lost.", "Tu partida actual se guarda antes en una copia, así que no se pierde nada."},
++    {"Confirm", "Confirmar"},
++    {"Backups", "Copias de seguridad"},
++    {"No backups yet.", "Todavía no hay copias de seguridad."},
++    {"Restore", "Recuperar"},
++    {"Save imported. When you start the game, your progress will appear.", "Partida importada. Al abrir el juego aparecerá tu progreso."},
++    {"Backup restored. When you start the game, your progress will appear.", "Copia recuperada. Al abrir el juego aparecerá tu progreso."},
++    {"Your previous save was backed up first.", "Tu partida anterior se guardó antes en una copia."},
++    {"Save exported to: %s", "Partida exportada a: %s"},
++    {"To use it in an emulator, put it next to your ROM with the SAME NAME as the ROM and the .sav extension (RetroArch: the saves folder, .srm extension).", "Para usarla en un emulador, ponla junto a tu ROM con EL MISMO NOMBRE que la ROM y la extensión .sav (RetroArch: la carpeta «saves», extensión .srm)."},
++    {"Backup created.", "Copia de seguridad creada."},
++    {"The file was %llu bytes; the extra part was only padding, so the first 32 KiB were used.", "El archivo medía %llu bytes; lo que sobraba era relleno, así que se han usado los primeros 32 KiB."},
++    {"The file was only %llu bytes (a save is 32768): it was padded to 32 KiB.", "El archivo medía solo %llu bytes (lo normal son 32768): se ha completado hasta 32 KiB."},
++    {"Note: this save is empty (it has no progress).", "Ojo: esta partida está vacía (no contiene ningún progreso)."},
++    {"That file does not exist or cannot be read.", "Ese archivo no existe o no se puede leer."},
++    {"The file is empty.", "El archivo está vacío."},
++    {"That looks like an emulator save state, not a save game. Save states are dumps of that emulator's memory and do not work here. Use the normal save game: save from inside the game in the emulator and look for the .sav file (mGBA, VBA-M, no$gba) or .srm file (RetroArch) next to the ROM or in its saves folder.", "Eso parece un estado rápido (save state) de un emulador, no una partida guardada. Los estados rápidos son volcados de la memoria de ese emulador y aquí no sirven. Usa la partida normal: guarda desde dentro del juego en el emulador y busca el archivo .sav (mGBA, VBA-M, no$gba) o .srm (RetroArch) junto a la ROM o en su carpeta de partidas."},
++    {"The file is bigger than a save of this game (32 KiB) and the extra part is not padding: it looks like another type of save (Flash or EEPROM), another game, or a program that saves in another format. Nothing was changed.", "El archivo es más grande que una partida de este juego (32 KiB) y lo que sobra no es relleno: parece otro tipo de partida (Flash o EEPROM), otro juego o un programa que guarda en otro formato. No se ha cambiado nada."},
++    {"No saved game yet. Play and save inside the game first.", "Todavía no hay partida guardada. Juega y guarda dentro del juego primero."},
++    {"Could not write the file. Nothing was changed.", "No se pudo escribir el archivo. No se ha cambiado nada."},
++    {"Choose the game's ROM first so the save can be located.", "Elige primero la ROM del juego para poder localizar la partida."},
++    {"The file is too big to be a save.", "El archivo es demasiado grande para ser una partida."},
++    {"Something went wrong.", "Algo ha fallado."},
++    {"Emulator save states cannot be imported: they are dumps of that emulator's memory. Use the normal save game (the .sav or .srm file). This program's own states (F1-F9) are a separate format.", "Los estados rápidos de un emulador no se pueden importar: son volcados de la memoria de ese emulador. Usa la partida normal (el archivo .sav o .srm). Los estados de este programa (F1-F9) son de otro formato."},
++    {"Close any other window of the game before importing, or it would save over the imported game.", "Cierra cualquier otra ventana del juego antes de importar; si no, volvería a guardar encima de la partida importada."},
+     {"Map %s to %s (Esc cancels, Backspace unbinds)%s", "Asigna %s a %s (Esc cancela, Retroceso borra)%s"},
+     {"an alternate key / mouse button", "una tecla alternativa o un botón del ratón"},
+     {"a key", "una tecla"},
+diff --git a/src/common/launcher_model.h b/src/common/launcher_model.h
+index e47fc5f..d173957 100644
+--- a/src/common/launcher_model.h
++++ b/src/common/launcher_model.h
+@@ -61,6 +61,8 @@ typedef enum {
+     LNG_VIEW_NETPLAY_SIGNIN,
+     /* PARCHE mario-tennis: visor de capturas de pantalla (carpeta «capturas»). */
+     LNG_VIEW_CAPTURES,
++    /* PARCHE mario-tennis: importar y exportar partidas de emulador, copias de seguridad. */
++    LNG_VIEW_PARTIDAS,
+     /* Keep last. launcher_model_set_view validates against this rather than
+      * against the last real view, which is what silently swallowed the two
+      * views above when they were first added. */

@@ -227,6 +227,26 @@ argumentos antes de llamar a `run_game()`.
      El aplicador de Python elige los parches por el **nombre de la carpeta** (`recomp-ui`), así que
      una prueba hecha en una carpeta con otro nombre no encuentra nada.
 
+6. **`recomp-ui-0006-partidas-de-emulador-en-el-menu`** (0.4.5), encima del 0005, en
+   `launcher_model.h`, `launcher_i18n.cpp` y `launcher_imgui.cpp`:
+   - `LNG_VIEW_PARTIDAS` (nueva vista) y `namespace partidas` con `draw_partidas(LauncherModel*,
+     const LauncherTheme&)`; el botón «Partidas» de la cabecera está junto al de «Capturas».
+   - La lógica **no** está en el parche: son funciones `extern "C"` de `src/partidas.h` /
+     `src/partidas.cpp` (se compilan en el ejecutable; `game_launcher_ui` tiene `src` entre sus
+     directorios de inclusión). Así se prueban sin el menú (`tools/pruebas/probar_partidas_menu.sh`).
+   - La partida es la ROM elegida (`m->rom_full`) con la extensión cambiada a `.sav`. Importar:
+     lee el origen, rechaza estados rápidos / vacíos / otros formatos / enormes, recorta el relleno
+     (0xFF o 0x00) o la copia repetida de 64/128 KiB, completa con 0xFF lo que mida menos de 32 KiB,
+     guarda una copia `partida_<sello>_<motivo>.sav` en `copias-de-partidas` (junto a `config.ini`) y
+     escribe el `.sav` por un archivo temporal `.nueva` + renombrado (se borra el destino antes, por
+     Windows). Si la copia falla, no se toca nada.
+   - Selector de archivos: `ui_pick_file` / `ui_pick_save_file` (zenity o kdialog si existen; si no,
+     el explorador integrado, que filtra por patrones y rechaza solo las extensiones que no encajan).
+   - Textos: tabla `kSpanish` y `ui_text()`. Una etiqueta con `##` (por ejemplo «Open folder##copias»)
+     debe armarse con `std::string(ui_text("Open folder")) + "##copias"`; si no, no se traduce.
+   - Regenerar el parche: copiar el árbol, aplicar 0001–0005 y `git diff` de los 3 archivos; el
+     aplicador de Python elige los parches por el nombre de la carpeta (`recomp-ui`).
+
 ### Aviso de versión: módulo y ajustes
 
 `src/aviso_actualizacion.cpp` (solo se compila con `MTP_MENU=ON`):

@@ -3,6 +3,49 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El número
 de versión está en el archivo `VERSION` (lo lee `ACTUALIZAR.bat` para saber si hay algo nuevo).
 
+## [0.4.5] — 2026-11-20
+
+### Añadido
+- **Importar y exportar partidas de emulador desde el menú de arranque.** Botón **«Partidas»** en la
+  cabecera del menú (el que sale antes de empezar el juego). Pantalla con la ruta y la fecha de tu
+  partida actual y estos botones: *Importar de un emulador…*, *Exportar a un emulador…*, *Hacer copia
+  ahora* y *Abrir carpeta*; debajo, la lista de copias de seguridad con *Recuperar*.
+  - **Importar:** eliges el `.sav` (o el `.srm` de RetroArch) con el selector de archivos del sistema
+    (o con el explorador integrado si no hay uno), el menú lo comprueba, te enseña qué va a usar y
+    pide *Confirmar*. **Antes de sustituir tu partida guarda una copia** en `copias-de-partidas`
+    (junto a `config.ini`, con el nombre `partida_<fecha>_<motivo>.sav`). Si no se puede hacer la
+    copia, no se toca nada.
+  - **Qué acepta:** archivos de 32 KiB; los que traen relleno (`0xFF`/`0x00`) o la misma partida
+    repetida hasta 64 o 128 KiB se recortan a 32 KiB; los que miden menos se completan con `0xFF`.
+    Avisa si la partida está en blanco.
+  - **Qué rechaza (sin tocar nada):** los estados rápidos (*save states*) de emuladores, los
+    archivos vacíos, los que traen datos de otro tipo de guardado (Flash, EEPROM, otro juego) y los
+    enormes.
+  - **Exportar:** escribe tu partida (32 KiB, igual byte a byte) donde elijas; si el nombre no lleva
+    extensión añade `.sav`. No cambia tu partida. Recuerda que para usarla en un emulador debe
+    llamarse como la ROM de ese emulador.
+  - Español e inglés.
+- `src/partidas.h` y `src/partidas.cpp` (la lógica, en C, sin depender del menú) y
+  `tools/pruebas/probar_partidas_menu.sh`, que la compila con un `main` de prueba y comprueba
+  90 casos (tamaños, relleno, copias repetidas, estados rápidos, copias de seguridad, restaurar,
+  rutas con espacios y con tildes). La CI también lo ejecuta.
+
+### Cambiado
+- Parche nuevo `parches/recomp-ui-0006-partidas-de-emulador-en-el-menu.patch` (3 archivos de
+  recomp-ui: `launcher_model.h`, `launcher_i18n.cpp`, `launcher_imgui.cpp`), encima del 0005.
+  Idempotente y aplicable con `aplicar_parches.py`, `construir.ps1` y la CI.
+- El ejemplo del aviso de versión del README y de la plantilla de errores usan ahora 0.4.5/0.4.6.
+
+### Por qué está en el menú de arranque y no en el de `Esc`
+- Con el juego en marcha, al cerrarse volvería a guardar su SRAM en memoria encima de la partida
+  importada. Antes de empezar, el juego no ha cargado nada y la importación es segura.
+
+### Lo que no se ha podido probar
+- **Un Windows real:** el selector nativo de archivos y «Abrir carpeta». En Linux se probó con la
+  ventana real (Xvfb): importar con relleno y copia previa, exportar (idéntico al original),
+  recuperar una copia y los mensajes de rechazo.
+- **Una partida jugada de verdad en un emulador** (mGBA, RetroArch…): se probó con archivos de prueba.
+
 ## [0.4.4] — 2026-11-15
 
 ### Añadido
