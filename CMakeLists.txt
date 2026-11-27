@@ -55,11 +55,14 @@ set(MTP_URL_VERSION "https://raw.githubusercontent.com/MaErGa/MarioTennisPowerTo
 set(RECOMP_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/externo/recomp-ui"
     CACHE PATH "Ruta al checkout de recomp-ui (el menú)")
 
-# Juego en red: el cable link de la GBA por red (IP directa, LAN o sala en línea), con
-# rollback. Lo trae el framework con recomp-net y rbengine (submódulos que descarga
-# tools/construir.sh) y lo maneja el menú (pestaña «Netplay»). Necesita el menú. Si falta
-# algo se desactiva solo y el juego se compila como antes. Apagar: -DMTP_NETPLAY=OFF.
-option(MTP_NETPLAY "Compilar el juego en red (cable link por red; experimental, necesita el parche gbarecomp-0009)" OFF)
+# Juego en red: el cable link de la GBA por red (por IP directa), con rollback. Lo trae el
+# framework con recomp-net y rbengine (submódulos que descarga tools/construir.sh). Se maneja con
+# la pantalla «En línea» del menú de arranque (código de invitación, SIN servidor: src/invitacion.cpp)
+# o con --netplay-bind/-peer/-seat/-session. A propósito NO se enlaza la pestaña «Netplay» del
+# framework (gbarecomp_target_netplay_launcher): usa un servidor de salas de terceros.
+# Necesita el menú. Si falta algo se desactiva solo y el juego se compila como antes.
+# Apagar: -DMTP_NETPLAY=OFF.
+option(MTP_NETPLAY "Compilar el juego en red (cable link por red; experimental, necesita el parche gbarecomp-0009)" ON)
 if(MTP_NETPLAY)
     if(NOT MTP_MENU OR
        NOT EXISTS "${GBARECOMP_ROOT}/external/recomp-net/CMakeLists.txt" OR
@@ -139,12 +142,13 @@ add_executable(MarioTennisPowerTourRecomp
     ${MTP_GENERATED})
 
 if(MTP_MENU)
-    target_sources(MarioTennisPowerTourRecomp PRIVATE src/aviso_actualizacion.cpp src/partidas.cpp)
+    target_sources(MarioTennisPowerTourRecomp PRIVATE src/aviso_actualizacion.cpp src/partidas.cpp
+                   src/invitacion.cpp)
     target_compile_definitions(MarioTennisPowerTourRecomp PRIVATE
         "MTP_VERSION=\"${MTP_VERSION_TXT}\""
         "MTP_URL_VERSION_DEFECTO=\"${MTP_URL_VERSION}\"")
     if(WIN32)
-        target_link_libraries(MarioTennisPowerTourRecomp PRIVATE winhttp)
+        target_link_libraries(MarioTennisPowerTourRecomp PRIVATE winhttp ws2_32)
     endif()
 endif()
 
@@ -185,10 +189,6 @@ if(MTP_MENU)
     # CONSOLE gba: solo se incluyen los recursos (mando, fuentes) de GBA.
     recomp_target_launcher_ui(game_launcher_ui CONSOLE gba)
     recomp_target_launcher_language(game_launcher_ui "${MTP_IDIOMA_MENU}")
-    # Pestaña «Netplay» del menú (salas, IP directa) y la ejecución de la partida en red.
-    if(MTP_NETPLAY)
-        gbarecomp_target_netplay_launcher(game_launcher_ui)
-    endif()
     # El menú muestra el aviso de versión nueva que da src/aviso_actualizacion.cpp.
     target_compile_definitions(game_launcher_ui PRIVATE MTP_EXTRAS_MENU=1)
     set_target_properties(game_launcher_ui PROPERTIES POSITION_INDEPENDENT_CODE ON)

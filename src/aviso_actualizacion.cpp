@@ -4,7 +4,7 @@
 // comprobación en un hilo aparte (una sola petición de unos pocos bytes: el archivo VERSION
 // del repositorio) y devuelve "" mientras no haya respuesta. Si la versión de allí es mayor que
 // la instalada, devuelve ese número. NUNCA descarga ni ejecuta nada: solo informa; para
-// actualizar se sigue usando ACTUALIZAR.bat. Si no hay internet, la dirección no existe o la
+// actualizar se usa ACTUALIZAR.bat (Windows) o tools/actualizar.sh (Linux). Si no hay internet, la dirección no existe o la
 // respuesta no parece un número de versión, simplemente no sale ningún aviso.
 //
 // Ajustes (config.ini, sección [Menu]):

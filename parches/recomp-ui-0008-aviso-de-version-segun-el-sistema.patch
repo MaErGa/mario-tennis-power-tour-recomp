@@ -1,0 +1,32 @@
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -15101,10 +15101,15 @@
+         const char* nueva = mtp_aviso_actualizacion();   // la primera llamada lanza la comprobación
+         if (m->view == LNG_VIEW_DASHBOARD && !aviso_oculto && nueva && nueva[0]) {
+             char msg[320];
+-            std::snprintf(msg, sizeof(msg),
+-                ui_text("A new version is available: %s (you have %s). "
+-                        "Download the new zip and run its ACTUALIZAR.bat."),
+-                nueva, mtp_version_instalada());
++            // Cada sistema tiene su actualizador: ACTUALIZAR.bat (Windows) y tools/actualizar.sh (Linux).
++#if defined(_WIN32)
++            const char* texto_aviso = ui_text("A new version is available: %s (you have %s). "
++                                              "Download the new zip and run its ACTUALIZAR.bat.");
++#else
++            const char* texto_aviso = ui_text("A new version is available: %s (you have %s). "
++                                              "Download the new zip and run its tools/actualizar.sh.");
++#endif
++            std::snprintf(msg, sizeof(msg), texto_aviso, nueva, mtp_version_instalada());
+             const float bw = px(110.0f);
+             ImGui::AlignTextToFramePadding();
+             ImGui::PushStyleColor(ImGuiCol_Text, col(th.warn));
+--- a/src/common/launcher_i18n.cpp
++++ b/src/common/launcher_i18n.cpp
+@@ -580,6 +580,7 @@
+     {"Could not read this image.", "No se pudo leer esta imagen."},
+     {"Hide", "Ocultar"},
+     {"A new version is available: %s (you have %s). Download the new zip and run its ACTUALIZAR.bat.", "Hay una versión nueva: %s (tienes la %s). Descarga el zip nuevo y ejecuta su ACTUALIZAR.bat."},
++    {"A new version is available: %s (you have %s). Download the new zip and run its tools/actualizar.sh.", "Hay una versión nueva: %s (tienes la %s). Descarga el zip nuevo y ejecuta su tools/actualizar.sh."},
+     // ---- 0.4.5: pantalla «Partidas» (importar / exportar partidas de emulador) ----
+     {"Saves", "Partidas"},
+     {"SAVES", "PARTIDAS"},

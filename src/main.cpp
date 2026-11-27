@@ -26,6 +26,8 @@
 
 #if defined(MTP_NETPLAY)
 #include "gba_netplay_build_identity.h"  // GBARECOMP_NETPLAY_BUILD_ID (lo genera CMake)
+#include "invitacion.h"  // jugar online por código de invitación (sin servidor)
+#include "host_overlay.h"  // rótulo con los nombres de los jugadores
 #include "multiplayer_launch.h"
 #include "multiplayer_session.h"  // GbaInstance
 #endif
@@ -249,6 +251,94 @@ bool leer_opciones_de_red(std::vector<std::string>& args, gbarecomp::RunOptions&
     return true;
 }
 
+#if defined(MTP_NETPLAY)
+// Nombres para reconocerse en la partida (los que se pusieron en el menú «En línea»; no son los
+// de los personajes del juego). Los rellena sumar_argumentos_de_invitacion.
+std::string g_nombre_local, g_nombre_amigo;
+
+// Saca de `args` --mtp-nombre y --mtp-nombre-amigo (con su valor): no son opciones del juego. También
+// sirven por línea de órdenes para una partida en red por IP directa.
+void extraer_nombres(std::vector<std::string>& args) {
+    for (std::size_t i = 0; i < args.size();) {
+        const bool propio = args[i] == "--mtp-nombre";
+        const bool amigo = args[i] == "--mtp-nombre-amigo";
+        if ((propio || amigo) && i + 1 < args.size()) {
+            (propio ? g_nombre_local : g_nombre_amigo) = args[i + 1];
+            args.erase(args.begin() + static_cast<std::ptrdiff_t>(i), args.begin() + static_cast<std::ptrdiff_t>(i) + 2);
+        } else {
+            ++i;
+        }
+    }
+}
+
+// Si la persona preparó una sala en el menú «En línea» y ya está conectada, añade a `args` los
+// argumentos del juego en red (--netplay-bind, --netplay-peer, --netplay-seat, --netplay-session)
+// y recoge los nombres (--mtp-nombre, --mtp-nombre-amigo). Devuelve true si había una sala conectada.
+bool sumar_argumentos_de_invitacion(std::vector<std::string>& args) {
+    char buf[2048];
+    const int n = mtp_inv_argumentos(buf, static_cast<int>(sizeof buf));
+    if (n <= 0) return false;
+    std::string palabra;
+    for (int i = 0; i < n; ++i) {
+        if (buf[i] == '\n') {
+            if (!palabra.empty()) args.push_back(palabra);
+            palabra.clear();
+        } else {
+            palabra.push_back(buf[i]);
+        }
+    }
+    if (!palabra.empty()) args.push_back(palabra);
+    extraer_nombres(args);
+    return true;
+}
+
+// Rótulo con los nombres de los dos jugadores sobre la imagen del juego: los primeros 12 segundos
+// de la partida (los dos últimos se desvanece). Tú a la izquierda, tu amigo a la derecha. Es una
+// capa del host: no toca la memoria del juego, así que no afecta a la simulación en red.
+void rotulo_de_nombres(gbarecomp::HostOverlay* ov) {
+    using gbarecomp::OverlayAlign;
+    using gbarecomp::OverlayColor;
+    using gbarecomp::OverlaySpace;
+    if (!ov || !ov->text_supported()) return;
+    static bool empezado = false;
+    static std::uint32_t t0 = 0;
+    const std::uint32_t ahora = ov->host_ms();
+    if (!empezado) {
+        empezado = true;
+        t0 = ahora;
+    }
+    constexpr std::uint32_t kVisible = 12000, kDesvanece = 2000;
+    const std::uint32_t t = ahora - t0;
+    if (t >= kVisible) return;
+    const float alfa = t > kVisible - kDesvanece ? static_cast<float>(kVisible - t) / static_cast<float>(kDesvanece) : 1.0f;
+    const float tam = 8.0f;     // alto de las letras, en píxeles de la imagen del juego (240 x 160)
+    const float relleno = 3.0f;
+    const float margen = 3.0f;
+    const auto etiqueta = [&](const std::string& nombre, bool a_la_izquierda, OverlayColor color) {
+        if (nombre.empty()) return;
+        const float ancho = ov->text_width(nombre.c_str(), tam, OverlaySpace::View);
+        const float x = a_la_izquierda ? margen : static_cast<float>(ov->view_width()) - margen - ancho - 2.0f * relleno;
+        ov->fill_rect(x, margen, ancho + 2.0f * relleno, tam + 2.0f * relleno, 3.0f,
+                      OverlayColor{0, 0, 0, static_cast<std::uint8_t>(185.0f * alfa)}, OverlaySpace::View);
+        color.a = static_cast<std::uint8_t>(255.0f * alfa);
+        ov->text(x + relleno, margen + relleno, tam, color, nombre.c_str(), OverlayAlign::Left, OverlaySpace::View);
+    };
+    etiqueta(g_nombre_local, true, OverlayColor{150, 255, 170, 255});
+    etiqueta(g_nombre_amigo, false, OverlayColor{255, 255, 255, 255});
+}
+
+// Pone los nombres en la partida en red (título de la ventana y rótulo). Después de leer_opciones_de_red.
+void poner_nombres_en_la_partida(gbarecomp::RunOptions& opts) {
+    if (!opts.netplay || (g_nombre_local.empty() && g_nombre_amigo.empty())) return;
+    auto& lanzamiento = *opts.netplay;
+    const unsigned yo = lanzamiento.local_seat < lanzamiento.player_names.size() ? lanzamiento.local_seat : 0u;
+    const unsigned otro = yo == 0 ? 1u : 0u;  // la invitación es siempre de dos personas
+    lanzamiento.player_names[yo] = g_nombre_local;
+    lanzamiento.player_names[otro] = g_nombre_amigo;
+    lanzamiento.host_overlay = &rotulo_de_nombres;
+}
+#endif
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -304,8 +394,23 @@ int main(int argc, char** argv) {
 
 #if defined(GBAGAME_RECOMP_UI)
     std::vector<std::string> args(argv, argv + argc);
+#if defined(MTP_NETPLAY)
+    extraer_nombres(args);
+#endif
     if (!leer_opciones_de_red(args, opts)) return 2;
+#if defined(MTP_NETPLAY)
+    poner_nombres_en_la_partida(opts);
+#endif
     if (game_launcher_preboot(args, opts)) return 0;  // la persona salió del menú
+#if defined(MTP_NETPLAY)
+    // «En línea»: si hay una sala conectada, se arranca la partida en red con su puerto y su par.
+    if (sumar_argumentos_de_invitacion(args)) {
+        if (!leer_opciones_de_red(args, opts)) return 2;
+        poner_nombres_en_la_partida(opts);
+    } else {
+        mtp_inv_cancelar();   // una sala a medias (sin conectar) no debe dejar el puerto ocupado
+    }
+#endif
     aplicar_modo_pantalla(args);
     std::vector<char*> av;
     av.reserve(args.size() + 1);
@@ -314,7 +419,13 @@ int main(int argc, char** argv) {
     return gbarecomp::run_game(static_cast<int>(args.size()), av.data(), opts);
 #else
     std::vector<std::string> args(argv, argv + argc);
+#if defined(MTP_NETPLAY)
+    extraer_nombres(args);
+#endif
     if (!leer_opciones_de_red(args, opts)) return 2;
+#if defined(MTP_NETPLAY)
+    poner_nombres_en_la_partida(opts);
+#endif
     aplicar_modo_pantalla(args);
     std::vector<char*> av;
     av.reserve(args.size() + 1);

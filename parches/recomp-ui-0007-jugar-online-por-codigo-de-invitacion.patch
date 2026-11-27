@@ -1,0 +1,481 @@
+diff --git a/src/common/backends/imgui/launcher_imgui.cpp b/src/common/backends/imgui/launcher_imgui.cpp
+index 379108f..12ee784 100644
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -98,6 +98,7 @@ static const char* ui_text(const char* en) {
+ // cuando el proyecto define MTP_EXTRAS_MENU; sin él, el menú no avisa de nada.
+ #if defined(MTP_EXTRAS_MENU)
+ #include "partidas.h"                                 // importar/exportar partidas (src/partidas.cpp del anfitrión)
++#include "invitacion.h"                              // jugar online por código de invitación (src/invitacion.cpp del anfitrión)
+ extern "C" const char* mtp_aviso_actualizacion(void);   // "" o la versión nueva, p. ej. "0.4.4"
+ extern "C" const char* mtp_version_instalada(void);
+ #else
+@@ -1746,9 +1747,17 @@ void eyebrow_tracked(const char* s) {
+     // letter-spaced text
+     float x = p.x + px(10.0f);
+     ImU32 c = imcol(th.accent2);
+-    char buf[2] = {0,0};
+-    for (const char* q = s; *q; ++q) {
+-        buf[0] = *q;
++    // PARCHE mario-tennis: se recorre por caracteres UTF-8 completos (antes era byte a byte y
++    // «EN LÍNEA» salía como «EN L??NEA»: la tilde son dos bytes que solos no son un carácter).
++    char buf[5] = {0,0,0,0,0};
++    for (const char* q = s; *q; ) {
++        int n = 1;
++        const unsigned char u = (unsigned char)*q;
++        if (u >= 0xF0) n = 4; else if (u >= 0xE0) n = 3; else if (u >= 0xC0) n = 2;
++        int k = 0;
++        while (k < n && q[k]) { buf[k] = q[k]; ++k; }   // si la cadena acaba a medias, se corta ahí
++        buf[k] = 0;
++        q += k;
+         dl->AddText(ImVec2(x, p.y), c, buf);
+         x += ImGui::CalcTextSize(buf).x + px(2.2f);
+     }
+@@ -11969,6 +11978,326 @@ static void request_mod_commit_launch(LauncherModel* m) {
+     }
+ }
+ 
++// ═══ PARCHE mario-tennis: pantalla «En línea» (jugar con un amigo por código de invitación) ═══
++// Sin servidor ni cuenta: el anfitrión crea una sala y le pasa a su amigo un código de invitación;
++// el amigo lo pega y le devuelve un código de respuesta; con los dos se conectan por UDP y la
++// partida arranca sola. Toda la lógica (STUN, códigos, perforado de NAT) está en el anfitrión
++// (src/invitacion.cpp, con sus propias pruebas); aquí solo se dibuja y se pregunta.
++#if defined(MTP_EXTRAS_MENU)
++namespace enlinea {
++
++int g_modo = 0;                 // 0 elegir, 1 anfitrión (crea sala), 2 invitado (se une)
++char g_entrada[512] = {0};      // lo pegado: la respuesta del amigo (anfitrión) o su invitación (invitado)
++std::string g_mensaje;          // último error de validación, ya traducido
++bool g_intentado = false;       // ya se intentó arrancar la partida al conectar
++bool g_lanzado = false;         // la partida se ha pedido: el puerto lo usará el juego, no se cancela
++double g_copiado_hasta = 0.0;   // hasta cuándo se muestra «¡Copiado!»
++char g_nombre[25] = {0};        // tu nombre: lo ve tu amigo al conectar y sale en la partida (24 bytes como máximo)
++bool g_nombre_cargado = false;  // g_nombre ya se leyó de config.ini
++char g_apodo[25] = {0};         // apodo que solo ves tú para tu amigo (opcional; no se guarda)
++
++// Lo deja todo como al entrar: cancela la sala (libera el puerto) salvo que la partida ya se haya pedido.
++void reposo() {
++    if (!g_lanzado) mtp_inv_cancelar();
++    g_modo = 0;
++    g_entrada[0] = 0;
++    g_mensaje.clear();
++    g_intentado = false;
++    g_lanzado = false;
++    g_copiado_hasta = 0.0;
++    g_apodo[0] = 0;
++    mtp_inv_fijar_apodo_amigo("");
++}
++
++const char* texto_error(int codigo, int modo) {
++    switch (codigo) {
++    case MTP_INV_ERR_CODIGO:
++        return ui_text("That code is wrong or incomplete. Copy the whole code, every group.");
++    case MTP_INV_ERR_TIPO:
++        return ui_text(modo == 1
++            ? "That is an invitation code. Here you need your friend's REPLY code, the one they get after pasting yours."
++            : "That is a reply code. Here you need the INVITATION code your friend created.");
++    case MTP_INV_ERR_VERSION:
++        return ui_text("Your friend has a different version of the game (or another ROM). You both need exactly the same: the same version of this program and the same ROM.");
++    case MTP_INV_ERR_OTRA_SALA:
++        return ui_text("That reply code belongs to another room. Ask your friend for the one made from your current invitation code.");
++    case MTP_INV_ERR_SIN_RED:
++        return ui_text("Could not open a network port. Check your firewall and your network.");
++    case MTP_INV_ERR_TIEMPO:
++        return ui_text("Could not connect in time. Check that you both are online and have the program open, and that your friend pasted your code. Some networks (mobile data, companies, some fibre providers) do not allow this kind of direct connection.");
++    case MTP_INV_ERR_NO_DISPONIBLE:
++        return ui_text("This build does not include online play.");
++    case MTP_INV_ERR_OCUPADO:
++        return ui_text("A room is already open. Cancel it first.");
++    default:
++        return ui_text("Something went wrong.");
++    }
++}
++
++// Igual que el botón JUGAR del pie, pero sin pulsarlo: se llama cuando la sala ya está conectada.
++// Devuelve true si el juego se ha pedido (m->action == LNG_ACTION_LAUNCH).
++bool arrancar(LauncherModel* m) {
++    if (launcher_model_bios_blocks_play(m)) {
++        launcher_model_bios_play_prompt(m);
++        return false;
++    }
++    if (!launcher_model_can_launch(m)) {
++        g_mensaje = ui_text("Choose a valid ROM first: the game cannot start without it.");
++        return false;
++    }
++    if (!launcher_model_prepare_rom_patch(m)) {
++        if (m->rom_patch_supported && m->s.rom_patch_enabled) launcher_model_set_view(m, LNG_VIEW_MODS);
++        return false;
++    }
++    request_mod_commit_launch(m);
++    if (m->action == LNG_ACTION_LAUNCH) g_lanzado = true;
++    return g_lanzado;
++}
++
++// Cuadro de solo lectura con el código y botón «Copiar».
++void caja_codigo(const char* id, const char* codigo, const LauncherTheme& th) {
++    const float bw = px(120.0f);
++    const float sep = px(8.0f);
++    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - bw - sep);
++    char tmp[160];
++    std::snprintf(tmp, sizeof(tmp), "%s", codigo);
++    const std::string campo = std::string("##") + id;
++    ImGui::InputText(campo.c_str(), tmp, sizeof(tmp), ImGuiInputTextFlags_ReadOnly);
++    ImGui::SameLine(0, sep);
++    const std::string boton = std::string(ui_text("Copy")) + "##" + id;
++    if (ImGui::Button(boton.c_str(), ImVec2(bw, 0))) {
++        ImGui::SetClipboardText(codigo);
++        g_copiado_hasta = ImGui::GetTime() + 2.5;
++    }
++    if (ImGui::GetTime() < g_copiado_hasta)
++        ImGui::TextColored(col(th.good), "%s", ui_text("Copied!"));
++}
++
++// Cuadro para pegar un código y botón «Pegar».
++void caja_pegar(const char* id) {
++    const float bw = px(120.0f);
++    const float sep = px(8.0f);
++    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - bw - sep);
++    const std::string campo = std::string("##") + id;
++    ImGui::InputTextWithHint(campo.c_str(), ui_text("Paste the code here (Ctrl+V)"), g_entrada, sizeof(g_entrada));
++    ImGui::SameLine(0, sep);
++    const std::string boton = std::string(ui_text("Paste")) + "##" + id;
++    if (ImGui::Button(boton.c_str(), ImVec2(bw, 0))) {
++        const char* t = ImGui::GetClipboardText();
++        std::snprintf(g_entrada, sizeof(g_entrada), "%s", t ? t : "");
++        g_mensaje.clear();
++    }
++}
++
++// «Tu nombre»: lo ve tu amigo al conectar y sale en la partida (título de la ventana y rótulo), para
++// reconoceros sin depender del nombre del personaje. Se recuerda para la próxima vez.
++void campo_nombre(const LauncherTheme& th) {
++    if (!g_nombre_cargado) {
++        g_nombre_cargado = true;
++        mtp_inv_nombre_propio(g_nombre, static_cast<int>(sizeof g_nombre));
++    }
++    ImGui::TextColored(col(th.accent), "%s",
++        ui_text("Your name (optional; your friend will see it, it is not your character's name):"));
++    ImGui::SetNextItemWidth(px(300.0f));
++    if (ImGui::InputTextWithHint("##tu_nombre", ui_text("Type your name"), g_nombre, sizeof g_nombre))
++        mtp_inv_fijar_nombre_propio(g_nombre, 0);
++    if (ImGui::IsItemDeactivatedAfterEdit()) mtp_inv_fijar_nombre_propio(g_nombre, 1);
++}
++
++// Apodo para tu amigo: solo lo ves tú; si lo dejas vacío se usa el nombre que él puso.
++void campo_apodo(const LauncherTheme& th) {
++    ImGui::TextColored(col(th.text_muted), "%s", ui_text("Nickname for your friend (optional, only you see it):"));
++    ImGui::SetNextItemWidth(px(300.0f));
++    if (ImGui::InputTextWithHint("##apodo_amigo", ui_text("If empty, the name your friend chose is used"), g_apodo, sizeof g_apodo))
++        mtp_inv_fijar_apodo_amigo(g_apodo);
++}
++
++// Cómo llamar al amigo en los avisos: su nombre (o tu apodo) si lo hay.
++const char* quien(const MtpInvInfo& info) {
++    return info.nombre_amigo[0] ? info.nombre_amigo : ui_text("your friend");
++}
++
++void avisos_de_red(const MtpInvInfo& info, const LauncherTheme& th) {
++    if (info.sin_internet)
++        ImGui::TextColored(col(th.warn), "%s", ui_text("Could not find your public address (no internet, or the STUN server is blocked). This code only works if your friend is on the same local network."));
++    if (info.nat_simetrico)
++        ImGui::TextColored(col(th.warn), "%s", ui_text("Your network looks like a symmetric NAT or CGNAT: a direct connection is probably not possible. You can still try."));
++    if (info.amigo_nat_simetrico)
++        ImGui::TextColored(col(th.warn), "%s", ui_text("Your friend's network looks like a symmetric NAT or CGNAT: a direct connection is probably not possible. You can still try."));
++}
++
++}  // namespace enlinea
++
++void draw_enlinea(LauncherModel* m, const LauncherTheme& th) {
++    using namespace enlinea;
++    if (!begin_panel("enlinea_page", 0, false)) {
++        end_panel();
++        return;
++    }
++    eyebrow("ONLINE");
++    const float bw = px(210.0f), bh = px(34.0f);
++    const float sep = px(8.0f);
++    MtpInvInfo info;
++    mtp_inv_estado(&info);
++    // Si la sala ya no existe (p. ej. el juego en red la recogió), se vuelve a elegir.
++    if (g_modo == 1 && info.estado == MTP_INV_REPOSO) g_modo = 0;
++
++    ImGui::PushTextWrapPos(0.0f);
++    ImGui::TextColored(col(th.text), "%s",
++        ui_text("Play against a friend over the internet. There is no server or account: you pass each other two codes through any chat, and the game starts by itself. Both of you need the same version of this program and the same ROM."));
++    ImGui::Dummy(ImVec2(0, px(8.0f)));
++
++    if (!mtp_inv_disponible()) {
++        ImGui::TextColored(col(th.warn), "%s", texto_error(MTP_INV_ERR_NO_DISPONIBLE, 0));
++        ImGui::PopTextWrapPos();
++        end_panel();
++        return;
++    }
++    const bool listo = launcher_model_can_launch(m) || launcher_model_bios_blocks_play(m);
++    if (!listo && g_modo == 0)
++        ImGui::TextColored(col(th.warn), "%s", ui_text("Choose a valid ROM first (on the main screen): the game cannot start without it."));
++
++    // ── Elegir ───────────────────────────────────────────────────────────────
++    if (g_modo == 0) {
++        campo_nombre(th);
++        ImGui::Dummy(ImVec2(0, px(8.0f)));
++        ImGui::BeginDisabled(!listo);
++        if (ImGui::Button(ui_text("Create a room"), ImVec2(bw, bh))) {
++            g_mensaje.clear();
++            const int r = mtp_inv_crear();
++            if (r == MTP_INV_OK) g_modo = 1;
++            else g_mensaje = texto_error(r, 0);
++        }
++        ImGui::SameLine(0, sep);
++        if (ImGui::Button(ui_text("Join a room"), ImVec2(bw, bh))) {
++            g_mensaje.clear();
++            g_entrada[0] = 0;
++            g_modo = 2;
++        }
++        ImGui::EndDisabled();
++        ImGui::Dummy(ImVec2(0, px(4.0f)));
++        ImGui::TextColored(col(th.text_muted), "%s",
++            ui_text("Create a room if you invite, join a room if your friend sent you an invitation code."));
++    }
++
++    // ── Anfitrión ────────────────────────────────────────────────────────────
++    if (g_modo == 1) {
++        switch (info.estado) {
++        case MTP_INV_PREPARANDO:
++            ImGui::TextColored(col(th.text_muted), "%s", ui_text("Preparing the room: finding your public address..."));
++            break;
++        case MTP_INV_ESPERANDO_RESPUESTA: {
++            ImGui::TextColored(col(th.accent), "%s", ui_text("1. Send this invitation code to your friend:"));
++            caja_codigo("inv", info.codigo, th);
++            avisos_de_red(info, th);
++            ImGui::Dummy(ImVec2(0, px(8.0f)));
++            ImGui::TextColored(col(th.accent), "%s", ui_text("2. Paste here the reply code your friend sends back:"));
++            caja_pegar("resp");
++            ImGui::BeginDisabled(g_entrada[0] == 0);
++            if (ImGui::Button(ui_text("Connect"), ImVec2(bw, bh))) {
++                const int r = mtp_inv_responder(g_entrada);
++                if (r == MTP_INV_OK) g_mensaje.clear();
++                else g_mensaje = texto_error(r, 1);
++            }
++            ImGui::EndDisabled();
++            break;
++        }
++        case MTP_INV_CONECTANDO:
++            ImGui::TextColored(col(th.accent), ui_text("Connecting with %s... %d s"), quien(info), info.segundos);
++            avisos_de_red(info, th);
++            break;
++        case MTP_INV_CONECTADO:
++            ImGui::TextColored(col(th.good), ui_text("Connected with %s (%s). Starting the game..."), quien(info), info.par);
++            break;
++        case MTP_INV_ERROR:
++            ImGui::TextColored(col(th.warn), "%s", texto_error(info.error, 1));
++            avisos_de_red(info, th);
++            break;
++        default: break;
++        }
++    }
++
++    // ── Invitado ─────────────────────────────────────────────────────────────
++    if (g_modo == 2) {
++        if (info.estado == MTP_INV_REPOSO) {
++            ImGui::TextColored(col(th.accent), "%s", ui_text("1. Paste here the invitation code your friend sent you:"));
++            caja_pegar("inv");
++            ImGui::BeginDisabled(g_entrada[0] == 0);
++            if (ImGui::Button(ui_text("Continue"), ImVec2(bw, bh))) {
++                const int r = mtp_inv_unirse(g_entrada);
++                if (r == MTP_INV_OK) g_mensaje.clear();
++                else g_mensaje = texto_error(r, 2);
++            }
++            ImGui::EndDisabled();
++        } else {
++            switch (info.estado) {
++            case MTP_INV_PREPARANDO:
++                ImGui::TextColored(col(th.text_muted), "%s", ui_text("Preparing the room: finding your public address..."));
++                break;
++            case MTP_INV_ESPERANDO_AMIGO:
++                ImGui::TextColored(col(th.accent), "%s", ui_text("2. Send this reply code back to your friend:"));
++                caja_codigo("resp", info.codigo, th);
++                avisos_de_red(info, th);
++                ImGui::Dummy(ImVec2(0, px(8.0f)));
++                ImGui::TextColored(col(th.text_muted), ui_text("Waiting for your friend to paste it and connect... %d s. Keep this window open."), info.segundos);
++                break;
++            case MTP_INV_CONECTANDO:
++                ImGui::TextColored(col(th.accent), ui_text("Connecting with %s... %d s"), quien(info), info.segundos);
++                avisos_de_red(info, th);
++                break;
++            case MTP_INV_CONECTADO:
++                ImGui::TextColored(col(th.good), ui_text("Connected with %s (%s). Starting the game..."), quien(info), info.par);
++                break;
++            case MTP_INV_ERROR:
++                ImGui::TextColored(col(th.warn), "%s", texto_error(info.error, 2));
++                avisos_de_red(info, th);
++                break;
++            default: break;
++            }
++        }
++    }
++
++    // ── Errores de validación y botones comunes ──────────────────────────────
++    if (!g_mensaje.empty()) {
++        ImGui::Dummy(ImVec2(0, px(6.0f)));
++        ImGui::TextColored(col(th.warn), "%s", g_mensaje.c_str());
++    }
++
++    if (g_modo != 0 && info.estado != MTP_INV_ERROR) {
++        ImGui::Dummy(ImVec2(0, px(8.0f)));
++        campo_apodo(th);
++    }
++
++    if (g_modo != 0) {
++        ImGui::Dummy(ImVec2(0, px(10.0f)));
++        const bool fin = info.estado == MTP_INV_ERROR;
++        if (info.estado == MTP_INV_CONECTADO && !g_lanzado) {
++            // Al conectar, la partida arranca sola; este botón es por si no pudo (falta la ROM, aviso de BIOS...).
++            if (!g_intentado) {
++                g_intentado = true;
++                arrancar(m);
++            } else if (ImGui::Button(ui_text("Start game"), ImVec2(bw, bh))) {
++                arrancar(m);
++            }
++            ImGui::SameLine(0, sep);
++        }
++        if (ImGui::Button(ui_text(fin ? "Try again" : "Cancel"), ImVec2(bw, bh))) reposo();
++    }
++
++    // ── Avisos fijos ─────────────────────────────────────────────────────────
++    ImGui::Dummy(ImVec2(0, px(12.0f)));
++    ImGui::Separator();
++    ImGui::Dummy(ImVec2(0, px(4.0f)));
++    ImGui::TextColored(col(th.text_muted), "%s",
++        ui_text("Privacy: the codes contain your public IP address (and the one of your local network), so only give them to your friend. To find that address, a public STUN server (Google or Cloudflare) is asked once; it does not receive the codes, names or games. There is no server of ours. The name you type is sent to your friend when you connect."));
++    ImGui::Dummy(ImVec2(0, px(4.0f)));
++    ImGui::TextColored(col(th.text_muted), "%s",
++        ui_text("The first time, your firewall may ask for network permission: allow it (private networks). It does not work with every network (some mobile data and company networks block it). Experimental: each computer simulates both consoles, so a fast PC is needed."));
++    ImGui::PopTextWrapPos();
++    end_panel();
++}
++#endif  // MTP_EXTRAS_MENU
++
+ struct ModIntegerEditState {
+     int64_t value = 0;
+     std::string provider_value;
+@@ -14665,6 +14994,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+             const int count = 2 + (m->mods ? 1 : 0) +   // PARCHE mario-tennis: +1 por «Capturas»
+ #if defined(MTP_EXTRAS_MENU)
+                               1 +                       // PARCHE mario-tennis: +1 por «Partidas»
++                              (mtp_inv_disponible() ? 1 : 0) +   // PARCHE mario-tennis: +1 por «En línea»
+ #endif
+                               (m->has_assist_tools ? 1 : 0) +
+                               ((m->credits_text && m->credits_text[0]) ? 1 : 0);
+@@ -14672,6 +15002,13 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+             const float total = w * count + gap * (count - 1);
+             ImGui::SetCursorPos(ImVec2(right - total, y));
+ #if defined(MTP_EXTRAS_MENU)
++            if (mtp_inv_disponible()) {
++                if (ImGui::Button(ui_text("Online"), ImVec2(w, px(34)))) {
++                    enlinea::reposo();   // siempre se entra como nuevo
++                    launcher_model_set_view(m, LNG_VIEW_ONLINE);
++                }
++                ImGui::SameLine(0, gap);
++            }
+             if (ImGui::Button(ui_text("Saves"), ImVec2(w, px(34)))) {
+                 partidas::liberar();   // se vuelve a mirar la partida y las copias al entrar
+                 launcher_model_set_view(m, LNG_VIEW_PARTIDAS);
+@@ -14790,6 +15127,7 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+     if (m->view != LNG_VIEW_CAPTURES && capturas::g_listado) capturas::liberar();   // PARCHE mario-tennis
+ #if defined(MTP_EXTRAS_MENU)
+     if (m->view != LNG_VIEW_PARTIDAS && partidas::g_listado) partidas::liberar();   // PARCHE mario-tennis
++    if (m->view != LNG_VIEW_ONLINE && (enlinea::g_modo != 0 || enlinea::g_lanzado)) enlinea::reposo();   // PARCHE mario-tennis
+ #endif
+     switch (m->view) {
+         case LNG_VIEW_DASHBOARD:  draw_dashboard(m, th, logical_w); break;
+@@ -14804,8 +15142,10 @@ void draw_ui(LauncherModel* m, const LauncherTheme& th, int logical_w, int logic
+         case LNG_VIEW_CAPTURES:     draw_capturas(m, th);            break;
+ #if defined(MTP_EXTRAS_MENU)
+         case LNG_VIEW_PARTIDAS:     draw_partidas(m, th);            break;
++        case LNG_VIEW_ONLINE:       draw_enlinea(m, th);             break;
+ #else
+         case LNG_VIEW_PARTIDAS:     break;
++        case LNG_VIEW_ONLINE:       break;
+ #endif
+         case LNG_VIEW_LOBBY:        draw_lobby(m, th);               break;
+     }
+@@ -15609,6 +15949,12 @@ extern "C" LngAction launcher_backend_run(LauncherPlatform* p,
+     capturas::liberar();   // PARCHE mario-tennis
+ #if defined(MTP_EXTRAS_MENU)
+     partidas::liberar();   // PARCHE mario-tennis
++    if (!enlinea::g_lanzado) {   // PARCHE mario-tennis: si se pidió la partida, el juego en red usa el puerto
++        MtpInvInfo info_red;
++        mtp_inv_estado(&info_red);
++        // Una sala ya conectada se conserva: main.cpp la recoge al salir del menú para arrancar en red.
++        if (info_red.estado != MTP_INV_CONECTADO) mtp_inv_cancelar();
++    }
+ #endif
+     launcher_texture_free(&g_boxart);
+     launcher_texture_free(&g_pad);
+diff --git a/src/common/launcher_i18n.cpp b/src/common/launcher_i18n.cpp
+index 9b709a1..17044cd 100644
+--- a/src/common/launcher_i18n.cpp
++++ b/src/common/launcher_i18n.cpp
+@@ -620,6 +620,49 @@ static const LauncherI18nEntry kSpanish[] = {
+     {"Something went wrong.", "Algo ha fallado."},
+     {"Emulator save states cannot be imported: they are dumps of that emulator's memory. Use the normal save game (the .sav or .srm file). This program's own states (F1-F9) are a separate format.", "Los estados rápidos de un emulador no se pueden importar: son volcados de la memoria de ese emulador. Usa la partida normal (el archivo .sav o .srm). Los estados de este programa (F1-F9) son de otro formato."},
+     {"Close any other window of the game before importing, or it would save over the imported game.", "Cierra cualquier otra ventana del juego antes de importar; si no, volvería a guardar encima de la partida importada."},
++    // ---- 0.5.0: pantalla «En línea» (jugar con un amigo por código de invitación) ----
++    {"Online", "En línea"},
++    {"Play against a friend over the internet. There is no server or account: you pass each other two codes through any chat, and the game starts by itself. Both of you need the same version of this program and the same ROM.", "Juega contra un amigo por internet. No hay servidor ni cuenta: os pasáis dos códigos por el chat que queráis y la partida arranca sola. Los dos necesitáis la misma versión de este programa y la misma ROM."},
++    {"Choose a valid ROM first (on the main screen): the game cannot start without it.", "Elige primero una ROM válida (en la pantalla principal): sin ella el juego no puede arrancar."},
++    {"Choose a valid ROM first: the game cannot start without it.", "Elige primero una ROM válida: sin ella el juego no puede arrancar."},
++    {"Create a room", "Crear una sala"},
++    {"Join a room", "Unirme a una sala"},
++    {"Create a room if you invite, join a room if your friend sent you an invitation code.", "Crea una sala si invitas tú; únete a una sala si tu amigo te ha mandado un código de invitación."},
++    {"Preparing the room: finding your public address...", "Preparando la sala: averiguando tu dirección pública..."},
++    {"1. Send this invitation code to your friend:", "1. Mándale este código de invitación a tu amigo:"},
++    {"2. Paste here the reply code your friend sends back:", "2. Pega aquí el código de respuesta que te devuelva tu amigo:"},
++    {"1. Paste here the invitation code your friend sent you:", "1. Pega aquí el código de invitación que te mandó tu amigo:"},
++    {"2. Send this reply code back to your friend:", "2. Devuélvele este código de respuesta a tu amigo:"},
++    {"Waiting for your friend to paste it and connect... %d s. Keep this window open.", "Esperando a que tu amigo lo pegue y se conecte... %d s. Deja esta ventana abierta."},
++    {"Connecting with %s... %d s", "Conectando con %s... %d s"},
++    {"Connected with %s (%s). Starting the game...", "Conectado con %s (%s). Arrancando la partida..."},
++    {"Your name (optional; your friend will see it, it is not your character's name):", "Tu nombre (opcional; lo verá tu amigo, no es el nombre de tu personaje):"},
++    {"Type your name", "Escribe tu nombre"},
++    {"Nickname for your friend (optional, only you see it):", "Apodo para tu amigo (opcional, solo lo ves tú):"},
++    {"If empty, the name your friend chose is used", "Si lo dejas vacío, se usa el nombre que puso tu amigo"},
++    {"your friend", "tu amigo"},
++    {"Paste the code here (Ctrl+V)", "Pega aquí el código (Ctrl+V)"},
++    {"Copy", "Copiar"},
++    {"Paste", "Pegar"},
++    {"Copied!", "¡Copiado!"},
++    {"Connect", "Conectar"},
++    {"Continue", "Continuar"},
++    {"Start game", "Empezar la partida"},
++    {"Try again", "Volver a intentar"},
++    {"That code is wrong or incomplete. Copy the whole code, every group.", "Ese código está mal o incompleto. Copia el código entero, todos los grupos."},
++    {"That is an invitation code. Here you need your friend's REPLY code, the one they get after pasting yours.", "Ese es un código de invitación. Aquí hace falta el código de RESPUESTA de tu amigo, el que le sale después de pegar el tuyo."},
++    {"That is a reply code. Here you need the INVITATION code your friend created.", "Ese es un código de respuesta. Aquí hace falta el código de INVITACIÓN que creó tu amigo."},
++    {"Your friend has a different version of the game (or another ROM). You both need exactly the same: the same version of this program and the same ROM.", "Tu amigo tiene otra versión del juego (u otra ROM). Los dos necesitáis exactamente lo mismo: la misma versión de este programa y la misma ROM."},
++    {"That reply code belongs to another room. Ask your friend for the one made from your current invitation code.", "Ese código de respuesta es de otra sala. Pídele a tu amigo el que sale de tu código de invitación actual."},
++    {"Could not open a network port. Check your firewall and your network.", "No se pudo abrir un puerto de red. Revisa tu cortafuegos y tu red."},
++    {"Could not connect in time. Check that you both are online and have the program open, and that your friend pasted your code. Some networks (mobile data, companies, some fibre providers) do not allow this kind of direct connection.", "No se consiguió conectar a tiempo. Comprueba que los dos tenéis internet y el programa abierto, y que tu amigo pegó tu código. Algunas redes (datos móviles, empresas, algunas operadoras de fibra) no permiten este tipo de conexión directa."},
++    {"This build does not include online play.", "Esta compilación no incluye el juego en línea."},
++    {"A room is already open. Cancel it first.", "Ya hay una sala abierta. Cancélala primero."},
++    {"Could not find your public address (no internet, or the STUN server is blocked). This code only works if your friend is on the same local network.", "No se pudo averiguar tu dirección pública (sin internet, o el servidor STUN está bloqueado). Este código solo vale si tu amigo está en la misma red local."},
++    {"Your network looks like a symmetric NAT or CGNAT: a direct connection is probably not possible. You can still try.", "Tu red parece un NAT simétrico o un CGNAT: lo más probable es que no se pueda conectar directamente. Aun así puedes intentarlo."},
++    {"Your friend's network looks like a symmetric NAT or CGNAT: a direct connection is probably not possible. You can still try.", "La red de tu amigo parece un NAT simétrico o un CGNAT: lo más probable es que no se pueda conectar directamente. Aun así puedes intentarlo."},
++    {"Privacy: the codes contain your public IP address (and the one of your local network), so only give them to your friend. To find that address, a public STUN server (Google or Cloudflare) is asked once; it does not receive the codes, names or games. There is no server of ours. The name you type is sent to your friend when you connect.", "Privacidad: los códigos llevan tu dirección IP pública (y la de tu red local), así que dáselos solo a tu amigo. Para averiguar esa dirección se le pregunta una vez a un servidor STUN público (Google o Cloudflare); no recibe los códigos, ni nombres, ni partidas. No hay ningún servidor nuestro. El nombre que escribas se le envía a tu amigo al conectar."},
++    {"The first time, your firewall may ask for network permission: allow it (private networks). It does not work with every network (some mobile data and company networks block it). Experimental: each computer simulates both consoles, so a fast PC is needed.", "La primera vez, tu cortafuegos puede pedir permiso de red: dáselo (redes privadas). No funciona con todas las redes (algunas de datos móviles y de empresa lo bloquean). Experimental: cada ordenador simula las dos consolas, así que hace falta un PC rápido."},
+     {"Map %s to %s (Esc cancels, Backspace unbinds)%s", "Asigna %s a %s (Esc cancela, Retroceso borra)%s"},
+     {"an alternate key / mouse button", "una tecla alternativa o un botón del ratón"},
+     {"a key", "una tecla"},
+diff --git a/src/common/launcher_model.h b/src/common/launcher_model.h
+index d173957..110612e 100644
+--- a/src/common/launcher_model.h
++++ b/src/common/launcher_model.h
+@@ -63,6 +63,8 @@ typedef enum {
+     LNG_VIEW_CAPTURES,
+     /* PARCHE mario-tennis: importar y exportar partidas de emulador, copias de seguridad. */
+     LNG_VIEW_PARTIDAS,
++    /* PARCHE mario-tennis: jugar online por código de invitación (sin servidor). */
++    LNG_VIEW_ONLINE,
+     /* Keep last. launcher_model_set_view validates against this rather than
+      * against the last real view, which is what silently swallowed the two
+      * views above when they were first added. */

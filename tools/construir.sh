@@ -22,6 +22,11 @@ GBARECOMP_URL="https://github.com/mstan/gbarecomp.git"
 GBARECOMP_COMMIT="edc2b80c73d83a2f35b9cfedaea0ea8d14647697"
 RECOMP_UI_URL="https://github.com/mstan/recomp-ui.git"
 RECOMP_UI_COMMIT="0546fbcb0126bb14bf88d2128b4fe8a4229570a3"
+# Juego en red (online por código de invitación): submódulos de gbarecomp. El commit que
+# gbarecomp trae fijado de recomp-net no tiene host_relay.h, que sí necesita su juego en red:
+# se usan estos dos (MIT, unos 2,5 MB en total).
+RECOMP_NET_COMMIT="590de3eccb34475620702d03fc2b4ecc19de99f8"
+RBENGINE_COMMIT="2a03e73693acee0fb78076ea058642c931bef12e"
 ROM_SHA1="d61990974040d405b5bf8436ac8e1e0beb0f7964"
 ROM_TAM=16777216
 
@@ -100,6 +105,18 @@ traer() { # nombre url commit
 traer gbarecomp "$GBARECOMP_URL" "$GBARECOMP_COMMIT"
 traer recomp-ui "$RECOMP_UI_URL" "$RECOMP_UI_COMMIT"
 
+# Submódulos del juego en red, en el commit que necesita este proyecto.
+fijar_submodulo() { # nombre commit
+    local dir="$EXTERNO/gbarecomp/external/$1"
+    [ -d "$dir/.git" ] || [ -f "$dir/.git" ] || fallo "Falta el submódulo $1 de gbarecomp."
+    if [ "$(git -C "$dir" rev-parse HEAD)" != "$2" ]; then
+        git -C "$dir" fetch --quiet origin "$2" 2>/dev/null || git -C "$dir" fetch --quiet origin
+        git -C "$dir" checkout --quiet --force "$2"
+    fi
+}
+fijar_submodulo recomp-net "$RECOMP_NET_COMMIT"
+fijar_submodulo rbengine "$RBENGINE_COMMIT"
+
 # ── 3. Parches al framework (idempotentes) ─────────────────────────────────
 paso "Aplicando los parches de parches/ a gbarecomp y a recomp-ui"
 python3 -I "$RAIZ/tools/aplicar_parches.py" "$EXTERNO/gbarecomp"
@@ -122,7 +139,8 @@ paso "Recompilando tu ROM (de ARM/Thumb a C++)"
 # ── 5. El juego ────────────────────────────────────────────────────────────
 paso "Compilando el juego (la primera vez tarda; usa $NUCLEOS núcleos)"
 cmake -S "$RAIZ" -B "$COMPILACION/juego" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-    -DGBARECOMP_ROOT="$(ruta_nativa "$EXTERNO/gbarecomp")" -DRECOMP_UI_ROOT="$(ruta_nativa "$EXTERNO/recomp-ui")" >/dev/null
+    -DGBARECOMP_ROOT="$(ruta_nativa "$EXTERNO/gbarecomp")" -DRECOMP_UI_ROOT="$(ruta_nativa "$EXTERNO/recomp-ui")" \
+    -DMTP_NETPLAY="${MTP_NETPLAY:-ON}" >/dev/null   # (se pasa siempre: una compilación vieja guardaba OFF en su caché)
 cmake --build "$COMPILACION/juego" --target MarioTennisPowerTourRecomp -j "$NUCLEOS"
 
 paso "Montando la carpeta juego/"

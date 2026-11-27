@@ -15,10 +15,10 @@ tienes que aportar es tu propia ROM.
 
 Ve a la pestaña **[Releases](https://github.com/MaErGa/MarioTennisPowerTourRecomp/releases)** y baja
 `MarioTennisPowerTourRecomp-X.Y.Z.zip` (equivale al «Source code (zip)» de GitHub). Descomprímelo y haz
-doble clic en **`INSTALAR.bat`**: el instalador compila el juego **en tu PC con tu propia ROM** (ver
-«Cómo usarlo»). Aquí **no hay `.exe` ni ROM** para bajar: el programa contiene el código del juego
+doble clic en **`INSTALAR.bat`** (Windows) o, en **Linux**, ejecuta **`bash tools/instalar.sh`**: el instalador
+compila el juego **en tu PC con tu propia ROM** (ver «Cómo usarlo»). Aquí **no hay `.exe` ni ROM** para bajar: el programa contiene el código del juego
 traducido y por eso no se puede publicar; cada persona lo construye con su propio volcado. Si ya lo
-tienes instalado, descomprime la versión nueva y usa `ACTUALIZAR.bat` (el menú te avisa cuando hay una).
+tienes instalado, descomprime la versión nueva y usa `ACTUALIZAR.bat` (Windows) o `bash tools/actualizar.sh` (Linux); el menú te avisa cuando hay una.
 
 ## Estado
 
@@ -46,9 +46,11 @@ virtual y sin ventana):
 | **Partidas de emuladores** (`.sav` de 32 KiB) y herramienta `PARTIDAS.bat` | El juego carga y recorta un `.sav` con relleno (probado con el juego compilado) y la herramienta pasa sus pruebas con PowerShell 7 en Linux. **Sin probar:** en un Windows real y con una partida jugada de verdad |
 | Rendimiento | ≈ 110–120 fotogramas/s sin ventana en un equipo de 2 núcleos (el juego pide 59,7) |
 | Audio | El juego genera sonido (comprobado: señal mezclada no silenciosa en un partido). **No se ha escuchado** (el entorno de pruebas no tiene tarjeta de sonido) |
-| Torneos completos, minijuegos, multijugador por cable | **Sin comprobar** |
+| **Jugar online con un amigo por código de invitación** (0.5.0, **experimental**) | Pantalla «En línea» del menú: crear sala, pasaros dos códigos, nombres para identificaros y la partida arranca sola. Comprobado en Linux con dos instancias reales del juego (se conectan, acuerdan el arranque y avanzan miles de ticks por las pantallas de idioma y de elección de personaje), el protocolo con routers NAT simulados (Linux) y la interfaz entera con ventana virtual. **Sin probar:** entre dos casas por internet de verdad, en Windows, **un partido completo en línea** y sesiones largas (ver «Jugar online con un amigo») |
+| Torneos completos, minijuegos, multijugador por cable (sin red) | **Sin comprobar** |
 | `.exe` de Windows (compilación cruzada con MinGW) | Arranca bajo Wine; una partida nueva en español (la que se veía rota en Windows) sale idéntica a la de Linux |
 | `INSTALAR.bat` en un Windows real (11), método antiguo con MSYS2 | La ventana, la comprobación del equipo y la detección de MSYS2 funcionaron; falló `pacman` por un bloqueo antiguo (`db.lck`), ya corregido |
+| **Linux: `tools/instalar.sh`, `actualizar.sh` y `desinstalar.sh`** (0.6.0) | **Funcionan** en Ubuntu 24.04 con tu ROM, de punta a punta: comprueba las herramientas (y se ofrece a instalar las que falten), verifica la ROM, compila (≈ 9 min en 2 núcleos), instala en la carpeta que elijas, crea la entrada del menú de aplicaciones (y, si quieres, el acceso del Escritorio), el juego arranca desde ese acceso y llega a la pantalla de idiomas; actualizar sin cambios no hace nada y con `--forzar` tarda 15 s reutilizando lo compilado sin tocar tus partidas ni ajustes; desinstalar conserva tus datos o lo borra todo. Más 62 comprobaciones automáticas en un HOME aislado. **Sin probar:** otras distribuciones, escritorios distintos del de las pruebas (GNOME, KDE…), tarjeta gráfica y sonido reales (PipeWire/PulseAudio), mando |
 | **Instalador ligero (sin MSYS2) y `ACTUALIZAR.bat`** | Probados de punta a punta en Linux con las mismas herramientas (Zig, CMake, Ninja) y PowerShell 7: instala, actualiza, y una actualización con un cambio pequeño tarda segundos. **Falta probarlos en un Windows real** |
 | `CONSTRUIR.bat` / `JUGAR.bat` en un Windows real | **Sin probar** |
 
@@ -157,18 +159,60 @@ ni acentos) y **`CONSTRUIR-MSYS2.bat`** hace lo mismo con el método clásico.
 
 ### Linux
 
-Hacen falta `git`, `cmake`, `g++` (o `clang++`), `ninja` y las cabeceras de SDL2
-(`sudo apt install build-essential cmake git ninja-build libsdl2-dev python3`).
+**Instalador (lo recomendado).** Descomprime el zip y, dentro de esa carpeta:
+
+```sh
+bash tools/instalar.sh
+```
+
+Te va preguntando lo necesario (con `--ayuda` salen todas las opciones):
+
+1. Mira si tienes `git`, `cmake`, `ninja`, `python3`, un compilador de C++ y las cabeceras de SDL2. Si
+   falta algo, te dice la orden exacta para tu distribución (`apt`, `dnf`, `pacman` o `zypper`) y te
+   ofrece ejecutarla (pide tu contraseña con `sudo`; con `--instalar-dependencias` no pregunta).
+2. Busca tu ROM europea (en `roms/`, la carpeta actual, Descargas, Documentos, Escritorio…) o te pide la
+   ruta; la comprueba por SHA-1. **La ROM no viene con el proyecto.**
+3. Te pregunta en qué carpeta instalar (por defecto `~/.local/share/MarioTennisPowerTour`; los espacios
+   en la ruta no dan problema), si quieres además un acceso en el Escritorio y si conservas los archivos
+   de compilación (≈ 700 MB) para que actualizar sea mucho más rápido.
+4. Compila en una carpeta temporal (`~/.cache/MarioTennisPowerTour-obra`), copia el juego a su carpeta,
+   crea la entrada **«Mario Tennis Power Tour»** del menú de aplicaciones (Categoría *Juegos*; usa un icono
+   genérico del tema: aquí no se distribuye arte del juego) y deja un `desinstalar.sh` junto al juego.
+
+Sin preguntas: `bash tools/instalar.sh --rom ~/roms/mtpt.gba --destino ~/Juegos/MarioTennis --silencioso`.
+Necesita unos 2 GB libres para compilar (se borran al terminar, salvo que los conserves) y ≈ 300 MB para
+el juego. En el equipo de pruebas (2 núcleos, 8 GB) tarda unos 9 minutos; cada proceso del compilador
+puede usar más de 1 GB de RAM, así que se limitan según la memoria libre (`MTP_NUCLEOS=1` si te quedas
+sin ella). El registro completo queda en `~/.cache/MarioTennisPowerTour-instalador.log`.
+
+**Actualizar:** descomprime la versión nueva y ejecuta `bash tools/actualizar.sh`. Encuentra solo dónde
+lo instalaste (por la entrada del menú o la carpeta por defecto; si no, `--destino`), no hace nada si ya
+tienes esa versión (`--forzar` lo reinstala igualmente), reutiliza la ROM ya instalada y **conserva tus
+partidas, estados, capturas y ajustes**. Si conservaste los archivos de compilación, tarda segundos.
+**Desinstalar:** `~/.local/share/MarioTennisPowerTour/desinstalar.sh` (te pregunta si conservas tus
+partidas y ajustes; `--silencioso` los conserva, `--borrar-todo` lo quita todo). Tu ROM original nunca se toca.
+
+**Sin instalador** (compilar dentro de la propia carpeta, para desarrollar):
 
 ```sh
 bash tools/construir.sh /ruta/a/tu_rom.gba     # o deja la ROM en roms/ y no pases nada
 cd juego && ./jugar.sh
 ```
 
-El script comprueba la ROM, descarga gbarecomp y recomp-ui en las versiones
-probadas, aplica los parches de `parches/`, recompila la BIOS libre y tu ROM,
-compila y monta la carpeta `juego/` (ejecutable, `game.toml`, BIOS libre, tu ROM).
-Desde cero, en el entorno de pruebas (2 núcleos), tarda unos 4 minutos.
+Descarga gbarecomp y recomp-ui en las versiones probadas, aplica los parches de `parches/`, recompila la
+BIOS libre y tu ROM, compila y monta la carpeta `juego/`.
+
+Cosas de Linux a tener en cuenta:
+
+- **Selector de archivos:** si tienes `zenity` o `kdialog`, el menú los usa; si no, usa su explorador
+  integrado (el botón «Buscar ROM (integrado)»), así que no es obligatorio.
+- **Aviso de versión nueva:** usa `curl` si está instalado; sin él, simplemente no avisa.
+- **Mando:** SDL2 lo reconoce solo; si no responde, mira los permisos de `/dev/input` de tu distribución.
+- **Pantalla y sonido:** SDL2 usa X11 o Wayland (XWayland) y PipeWire, PulseAudio o ALSA. Solo se ha
+  probado con una pantalla virtual y sonido de prueba: si algo no sale, abre un *issue* con tu distribución y escritorio.
+- **Juego online:** necesita poder enviar y recibir UDP. La conexión sale desde tu propio puerto, así que
+  con `ufw` o `firewalld` normalmente no hay que abrir nada (**no probado** con ellos); un NAT simétrico o
+  un CGNAT sí lo impiden (ver «Jugar online con un amigo»).
 
 ## El menú de configuración
 
@@ -241,7 +285,7 @@ hay junto a `config.ini`.
 
 Al abrir el menú de arranque, el programa pide **una vez** y en segundo plano el archivo `VERSION`
 del repositorio (una petición `GET` por HTTPS de unos pocos bytes; no envía nada tuyo). Si el
-número es mayor que el instalado, sale una franja arriba con «Hay una versión nueva: 0.4.6 (tienes la 0.4.5)…» y un
+número es mayor que el instalado, sale una franja arriba con «Hay una versión nueva: 0.6.1 (tienes la 0.6.0)…» y un
 botón **Ocultar** (solo en la pantalla de inicio del menú). Es **solo un aviso**: no descarga ni instala nada; para actualizar descarga el
 zip nuevo y usa `ACTUALIZAR.bat` (ver arriba). Sin internet, con la dirección caída o con una
 respuesta que no sea un número de versión, simplemente no sale nada.
@@ -414,6 +458,65 @@ Linux/Xvfb (importar con relleno y copia previa, exportar, recuperar) y su lógi
 y el explorador de carpetas no se han visto en un Windows real. Lo que **no** se ha hecho es traer una partida jugada de verdad
 desde un emulador.
 
+### Jugar online con un amigo (experimental, 0.5.0)
+
+Botón **«En línea»** en la cabecera del menú de arranque. **No hay servidor, ni cuenta, ni programa
+aparte**: os pasáis dos códigos por el chat que queráis (WhatsApp, Discord…) y la partida arranca sola.
+
+1. Los dos tenéis **la misma versión de este programa y la misma ROM** (el menú avisa si no).
+2. *(Opcional)* Escribe **tu nombre**: es el que verá tu amigo, para identificaros por vuestro nombre y
+   no por el del personaje del juego. Se guarda en `config.ini` (`[Online] Nombre`). Y puedes poner un
+   **apodo para tu amigo** que solo ves tú (no se guarda).
+3. Uno pulsa **«Crear una sala»** y le manda a su amigo el **código de invitación** (*Copiar*).
+4. El amigo pulsa **«Unirme a una sala»**, pega ese código (*Pegar*) y pulsa *Continuar*; le sale un
+   **código de respuesta**, que le devuelve al anfitrión.
+5. El anfitrión pega el código de respuesta y pulsa **«Conectar»**. Los dos se conectan y el juego
+   arranca solo. Durante los primeros segundos de la partida, la ventana del anfitrión rotula
+   quién es quién (tu nombre en verde a la izquierda, el de tu amigo en blanco a la derecha) y el
+   título de la ventana pone «Nombre1 vs Nombre2».
+
+Cómo funciona y qué se cuenta a quién:
+
+- Los códigos (40 caracteres en grupos de 4) llevan **tu dirección IP pública** y la de tu red
+  local: dáselos **solo a tu amigo**. Para averiguar tu dirección pública se consulta **una vez** a
+  un servidor STUN público (por defecto los de Google y Cloudflare); ese servidor no recibe los
+  códigos, ni los nombres, ni nada de la partida. Si prefieres otro, o ninguno, se cambia en
+  `config.ini` (`[Online] StunServers = host:puerto host:puerto`) o con la variable
+  `MTP_STUN_SERVERS`. **No hay ningún servidor nuestro.**
+- Los dos ordenadores se conectan **directamente** (UDP, perforando el NAT del router), sin
+  abrir puertos a mano. La primera vez, el cortafuegos de Windows puede pedir permiso de red:
+  dáselo (redes privadas). El nombre que escribes se envía a tu amigo al conectar (se limpia:
+  solo texto UTF-8 válido, hasta 24 bytes, sin caracteres de control).
+- Cada ordenador simula **las dos consolas** (modo cable con retroceso, *rollback*), así que hace
+  falta un PC que vaya sobrado; si el tuyo va justo en el modo normal, irá peor aquí.
+
+Límites que conviene saber antes de quedar con alguien:
+
+- **No funciona con todas las redes.** Si uno de los dos está detrás de un NAT simétrico o de un
+  CGNAT (muchos datos móviles, redes de empresa y algunas operadoras de fibra), la conexión directa
+  no es posible; el menú lo detecta y lo avisa, y la prueba acaba con un error de tiempo (el
+  anfitrión espera unos 4 minutos; el invitado, 45 segundos). Tampoco funciona con IPv6 (solo
+  IPv4).
+- Hace falta que **los dos** tengáis idéntico el programa, la ROM, el código generado y la BIOS
+  libre: si algo difiere, se rechaza la conexión en vez de arrancar una partida que se
+  desincronizaría.
+- Experimental: la partida puede cortarse o desincronizarse. No hay reconexión.
+
+Qué se ha comprobado y qué no (honestamente):
+
+- **Sí (Linux):** dos instancias reales del juego se conectan por el código, acuerdan el arranque
+  y avanzan más de 7.000 ticks por las pantallas de idioma y de elección de personaje sin
+  errores, a unos 58 ticks/s cada una en un equipo de 2 núcleos; el protocolo de códigos con
+  routers NAT reales de Linux en redes virtuales aisladas (dos NAT domésticos: conecta; simétrico en
+  un lado o en los dos, o sin STUN: no conecta y avisa); los nombres (limpieza, guardado, viaje por
+  la conexión, rótulo y título); y el recorrido completo por las pantallas del menú con ventana virtual.
+- **No:** una conexión **entre dos casas por internet de verdad**; Windows (ni el cortafuegos ni el
+  `.exe`; el módulo de red compila para Windows con MinGW, nada más); **un partido completo en línea**
+  (solo se llegó a las pantallas previas); sesiones largas (posibles desincronizaciones); equipos lentos.
+- Pruebas automáticas: `tools/pruebas/probar_invitacion.sh` (códigos, errores, nombres y
+  conexión local) y `tools/pruebas/probar_invitacion_nat.sh` (con routers NAT virtuales; necesita
+  root, `ip` e `iptables`).
+
 ## Qué incluye y qué no
 
 | Incluido | Licencia |
@@ -451,10 +554,11 @@ tools/comun.ps1        Funciones compartidas (ROM, búsqueda de instalación, hu
 tools/construir.ps1    Compilación ligera de Windows: Zig + CMake + Ninja + SDL2, sin git ni MSYS2
 tools/DESINSTALAR.ps1  El desinstalador (se copia a la carpeta del juego)
 tools/PARTIDAS.ps1     Importar, exportar, copias y restaurar partidas (se copia a la carpeta del juego)
-tools/pruebas/         Pruebas automáticas: filtros de imagen, aviso de versión, partidas y sintaxis de los .ps1
+tools/pruebas/         Pruebas automáticas: filtros de imagen, aviso de versión, partidas, juego en línea, instalador de Linux y sintaxis de los .ps1
 CONSTRUIR.bat          Windows: compila dentro de la carpeta del proyecto (método ligero)
 CONSTRUIR-MSYS2.bat    Windows: lo mismo con el método clásico (MSYS2)
 tools/construir.sh     Compilación en Linux (y la del método clásico en Windows)
+tools/instalar.sh, actualizar.sh, desinstalar.sh, comun.sh, jugar.sh   Instalador, actualizador y desinstalador de Linux (+ funciones comunes y arranque)
 tools/aplicar_parches.py   Aplica parches/*.patch a gbarecomp (idempotente)
 tools/fusionar_fallos.py   Añade a game.toml las entradas que el runtime encontró
 tools/JUGAR.bat, jugar.sh  Lanzadores que se copian a juego/
@@ -462,6 +566,7 @@ game.toml              Configuración del recompilador y del runtime
 src/main.cpp           Host: ganchos de RAM, identidad del cartucho, modos de pantalla
 src/game_launcher_boot.*   Puente con el menú de arranque (recomp-ui)
 src/aviso_actualizacion.cpp   Aviso de «hay una versión nueva» del menú (comprueba VERSION en segundo plano)
+src/invitacion.h, .cpp   Jugar online sin servidor: códigos de invitación, STUN, perforación de NAT y nombres
 parches/               Cambios mínimos a gbarecomp (se aplican solos)
 bios_libre/            BIOS libre (MIT) y su configuración
 docs/ESTADO.md         Estado detallado y hallazgos (leer al retomar)
@@ -478,6 +583,9 @@ python3 tools/aplicar_parches.py <carpeta de gbarecomp>     # el commit de tools
 bash tools/pruebas/probar_filtros.sh <carpeta de gbarecomp>
 bash tools/pruebas/probar_aviso.sh                          # el aviso de versión, contra un servidor local
 bash tools/pruebas/probar_partidas_menu.sh                  # importar/exportar partidas del menú (compila src/partidas.cpp)
+bash tools/pruebas/probar_invitacion.sh                     # códigos de invitación, nombres y conexión local (compila src/invitacion.cpp)
+sudo bash tools/pruebas/probar_invitacion_nat.sh            # lo mismo con routers NAT virtuales (necesita root, ip e iptables; si no, se omite)
+bash tools/pruebas/probar_instalador_linux.sh               # instalar/actualizar/desinstalar en Linux con un juego falso y un HOME temporal (62 comprobaciones)
 pwsh tools/pruebas/probar_partidas.ps1
 pwsh tools/pruebas/comprobar_sintaxis.ps1
 ```

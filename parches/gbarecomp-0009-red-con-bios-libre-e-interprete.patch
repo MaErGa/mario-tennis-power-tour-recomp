@@ -1,0 +1,111 @@
+--- a/src/armv4t/runtime_arm.cpp
++++ b/src/armv4t/runtime_arm.cpp
+@@ -882,8 +882,17 @@
+     const int forzar = g_runtime_force_interp_hook
+         ? g_runtime_force_interp_hook(pc, thumb ? 1 : 0) : 0;
+     if (forzar) {
+-        if (g_resumable_context)
+-            throw std::logic_error("multiplayer requires native dispatch coverage");
++        if (g_resumable_context) {
++            // PARCHE mario-tennis: en una sesión de juego en red no hay «puente» de subárbol
++            // (cada consola tiene su propia pila de retornos). Se cede el paso al planificador
++            // de la sesión dejando aquí el PC: los marcos de retorno de los llamantes quedan
++            // guardados en el contexto y el planificador interpreta desde este PC instrucción a
++            // instrucción (multiplayer_session.cpp), volviendo al código nativo en cuanto el
++            // gancho deja de pedir intérprete.
++            g_cpu.R[15] = pc;
++            gbarecomp::runtime_suspend_dispatch();
++            return nullptr;
++        }
+         if (forzar == 2) {
+             g_cpu.R[15] = pc;
+             return nullptr;
+--- a/src/gba/gba_bios.h
++++ b/src/gba/gba_bios.h
+@@ -24,6 +24,14 @@
+     static constexpr std::size_t kSize = 16 * 1024;
+     static constexpr const char* kExpectedSha1 =
+         "300c20df6731a33952ded8c436f7f186d25d3492";
++    // PARCHE mario-tennis: BIOS libre (MIT) de Cult-of-GBA, la que usa el proyecto. Se
++    // recompila a partir de bios_libre/ y se ejecuta como código nativo igual que la original,
++    // así que el juego en red puede usarla (antes exigía la BIOS de Nintendo).
++    static constexpr const char* kFreeReplacementSha1 =
++        "2e41f9d30ecdf1c4540edf89ac16f49bf327edb7";
++    static bool supported_for_netplay(const std::string& sha1_hex) {
++        return sha1_hex == kExpectedSha1 || sha1_hex == kFreeReplacementSha1;
++    }
+     // CRC32 of the canonical GBA BIOS (per zlib / IEEE 802.3). Kept
+     // as informational metadata — the picker computes CRC32 of any
+     // supplied dump but the gate is SHA-1 alone (CRC32 is a 32-bit
+--- a/src/runtime/multiplayer_runner.cpp
++++ b/src/runtime/multiplayer_runner.cpp
+@@ -46,7 +46,7 @@
+         if (!original.empty() && checkpoint_absolute==std::filesystem::weakly_canonical(original))
+             throw std::invalid_argument("paired checkpoint must not replace a cartridge save, ROM or BIOS");
+     std::filesystem::create_directories(checkpoint_absolute.parent_path());
+-    if (!boot.bios || !boot.rom || boot.bios->sha1_hex()!=gba::GbaBios::kExpectedSha1 ||
++    if (!boot.bios || !boot.rom || !gba::GbaBios::supported_for_netplay(boot.bios->sha1_hex()) ||
+         gba::sha1(boot.rom->data(),boot.rom->size()).hex()!=boot.expected_rom_sha1)
+         throw std::invalid_argument("netplay asset verification failed");
+     if (!valid_save_size(boot.save.type,boot.save.size))
+--- a/src/runtime/multiplayer_session.cpp
++++ b/src/runtime/multiplayer_session.cpp
+@@ -165,10 +165,15 @@
+             bind(instance);
+             if (profile) binding_time += ProfileClock::now() - bind_start;
+             const auto& e=instance.execution;
++            // PARCHE mario-tennis: el gancho force_interp de la consola pide interpretar este PC
++            // (código de RAM que no tiene equivalente nativo estable): se ejecuta una instrucción
++            // con el intérprete de referencia, con el mismo tiempo y las mismas interrupciones.
++            const bool interpretar = e.force_interp &&
++                e.force_interp(e.cpu.R[15] & ~1u, (e.cpu.cpsr & CPSR_T_BIT) ? 1 : 0) != 0;
+             const bool ram_callback=e.ram_dispatch && e.cpu.R[15]>=0x02000000 && e.cpu.R[15]<0x04000000 &&
+                 (!e.ram_dispatch_filter || e.ram_dispatch_filter(e.cpu.R[15],(e.cpu.cpsr&CPSR_T_BIT) ? 1 : 0));
+-            const bool generated = !e.program_dispatch && (!e.immediate_override || instance.immediate_override_is_observer) && !e.read_override &&
+-                !e.force_interp && !e.entry_hook && !e.bios_hook &&
++            const bool generated = !interpretar && !e.program_dispatch && (!e.immediate_override || instance.immediate_override_is_observer) && !e.read_override &&
++                !e.entry_hook && !e.bios_hook &&
+                 !gba::g_rom_read16_override && !gba::g_rom_read32_override;
+             if (native_slices_ && generated && !ram_callback) {
+                 // No newly started cable transfer can complete within this
+@@ -186,7 +191,10 @@
+             } else runtime_session_begin_instruction();
+             runtime_set_return_yield(native_slices_ && generated && return_yields_);
+             if (profile) ++dispatches;
+-            try { runtime_dispatch(g_cpu.R[15]); }
++            try {
++                if (interpretar) runtime_force_interp_step();
++                else runtime_dispatch(g_cpu.R[15]);
++            }
+             catch (const RuntimeDispatchYield&) { /* all guest residue is explicit */ }
+             catch (...) { capture(instance); throw; }
+             bind_start = profile ? ProfileClock::now() : ProfileClock::time_point{};
+--- a/src/runtime/runtime.cpp
++++ b/src/runtime/runtime.cpp
+@@ -1655,8 +1655,8 @@
+         try {
+             if (!opts.netplay->run || !opts.builtin_rom_sha1 ||
+                 rom_sha1!=lower_ascii(opts.builtin_rom_sha1) ||
+-                bios.sha1_hex()!=gba::GbaBios::kExpectedSha1)
+-                throw std::runtime_error("netplay requires this build's original ROM and retail BIOS");
++                !gba::GbaBios::supported_for_netplay(bios.sha1_hex()))   // PARCHE mario-tennis: también la BIOS libre
++                throw std::runtime_error("netplay requires this build's original ROM and a supported BIOS");
+             GbaNetplayBoot boot;
+             boot.bios=&bios; boot.rom=&rom; boot.expected_rom_sha1=opts.builtin_rom_sha1;
+             boot.rom_path=args.rom; boot.bios_path=args.bios;
+--- a/src/runtime/runtime_bus_bridge.cpp
++++ b/src/runtime/runtime_bus_bridge.cpp
+@@ -1038,6 +1038,13 @@
+ extern "C" bool runtime_should_yield(void) {
+     if (g_session_execution) {
+         if (gbarecomp::runtime_dispatch_suspended()) return true;
++        // PARCHE mario-tennis: igual que en una sola consola, un PC que el gancho pide interpretar
++        // (código de RAM sin equivalente nativo estable) corta aquí el código nativo; el
++        // planificador de la sesión lo ejecuta con el intérprete (multiplayer_session.cpp). Gracias
++        // a esto las consolas pueden usar tramos nativos largos aunque haya gancho.
++        if (!g_runtime_force_interp_step_active && g_runtime_force_interp_hook &&
++            g_runtime_force_interp_hook(g_cpu.R[15] & ~1u, (g_cpu.cpsr & CPSR_T_BIT) != 0 ? 1 : 0))
++            return gbarecomp::runtime_suspend_dispatch();
+         auto* bus = gbarecomp::g_active_bus;
+         const bool safe = g_session_slice && bus && gbarecomp::multiplayer_slice_safe(*bus,g_cpu);
+         if (g_session_instruction_started && (!g_session_slice || g_session_slice_stopped ||

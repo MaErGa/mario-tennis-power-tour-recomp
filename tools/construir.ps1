@@ -83,7 +83,11 @@ $Fuentes = @(
     # toml++ (lector de game.toml): gbarecomp lo clonaría con git al configurar; si ya está en
     # third_party/tomlpp (justo donde lo busca su CMakeLists.txt) no hace falta git.
     @{ Nombre = 'tomlplusplus';    Repo = 'marzer/tomlplusplus';   Commit = '30172438cee64926dc41fdd9c11fb3ba5b2ba9de'; Destino = 'externo/gbarecomp/third_party/tomlpp' },
-    @{ Nombre = 'recomp-ui';       Repo = 'mstan/recomp-ui';       Commit = '0546fbcb0126bb14bf88d2128b4fe8a4229570a3'; Destino = 'externo/recomp-ui' }
+    @{ Nombre = 'recomp-ui';       Repo = 'mstan/recomp-ui';       Commit = '0546fbcb0126bb14bf88d2128b4fe8a4229570a3'; Destino = 'externo/recomp-ui' },
+    # Juego en red (online por código de invitación): submódulos de gbarecomp, MIT. El commit de
+    # recomp-net que gbarecomp trae fijado no tiene host_relay.h, que sí necesita su juego en red.
+    @{ Nombre = 'recomp-net';      Repo = 'RetroPortingToolKit/recomp-net'; Commit = '590de3eccb34475620702d03fc2b4ecc19de99f8'; Destino = 'externo/gbarecomp/external/recomp-net' },
+    @{ Nombre = 'rbengine';        Repo = 'RetroPortingToolKit/rbengine';   Commit = '2a03e73693acee0fb78076ea058642c931bef12e'; Destino = 'externo/gbarecomp/external/rbengine' }
 )
 
 # Solo para pruebas en Linux (no se usan en Windows):
@@ -300,7 +304,7 @@ $cmake = Unir $Herramientas 'cmake/bin/cmake.exe'
 $ninja = Unir $Herramientas 'ninja/ninja.exe'
 
 # 3. Fuentes ────────────────────────────────────────────────────────────────
-Escribir-Paso '3/7 Descargando las fuentes de gbarecomp, toml++ y recomp-ui (unos 10 MB)'
+Escribir-Paso '3/7 Descargando las fuentes de gbarecomp, recomp-net, toml++ y recomp-ui (unos 13 MB)'
 $carpetaParches = Unir $Raiz 'parches'
 # Los parches de cada proyecto se llaman como él: gbarecomp-*.patch y recomp-ui-*.patch.
 $parches = @(Get-ChildItem -LiteralPath $carpetaParches -Filter 'gbarecomp-*.patch' -File | Sort-Object Name)
@@ -564,7 +568,7 @@ $compJuego = Unir $Raiz 'build/juego'
 # --log-level=ERROR: gbarecomp avisa de que no encuentra las DLL de MinGW en C:/msys64; aquí no
 # hacen falta (el .exe solo usa SDL2.dll, que se copia más abajo) y el aviso asusta sin motivo.
 Ejecutar-Ok $cmake (@('-S', (Ruta-Win $Raiz), '-B', (Ruta-Win $compJuego), '--log-level=ERROR') + $argsCmakeBase +
-    @("-DGBARECOMP_ROOT=$(Ruta-Barra $gbarecomp)", "-DRECOMP_UI_ROOT=$(Ruta-Barra $recompUi)")) $Raiz 'configurar el juego'
+    @("-DGBARECOMP_ROOT=$(Ruta-Barra $gbarecomp)", "-DRECOMP_UI_ROOT=$(Ruta-Barra $recompUi)", '-DMTP_NETPLAY=ON')) $Raiz 'configurar el juego'
 Ejecutar-Ok $cmake @('--build', (Ruta-Win $compJuego), '--target', 'MarioTennisPowerTourRecomp', '-j', [string]$Nucleos) $Raiz 'compilar el juego'
 
 Escribir-Info 'Montando la carpeta juego\...'

@@ -24,6 +24,9 @@ instalador o `tools/construir.sh`.
 | [gbarecomp](https://github.com/mstan/gbarecomp) (Matthew Stanley) | Recompilador y runtime de GBA | PolyForm Noncommercial 1.0.0, **salvo** `src/runtime/bios_hle.*` (ver abajo) |
 | [arm-recomp-core](https://github.com/mstan/arm-recomp-core) (Matthew Stanley) | Núcleo ARM/Thumb de gbarecomp | MIT |
 | [recomp-ui](https://github.com/mstan/recomp-ui) (Matthew Stanley) | Menú de configuración | MIT |
+| [recomp-net](https://github.com/RetroPortingToolKit/recomp-net) (colaboradores de recomp-net) | Red del juego en línea (cable por red) | MIT |
+| [rbengine](https://github.com/RetroPortingToolKit/rbengine) (colaboradores de retcomm-rbengine) | Motor de retroceso del juego en línea | MIT |
+| Servidores STUN públicos (por defecto, los de Google y Cloudflare) | Solo se les pregunta una vez la dirección pública al usar «En línea»; no se descarga ni se enlaza nada | — (servicio de red, no se redistribuye) |
 | [toml++](https://github.com/marzer/tomlplusplus) (Mark Gillard) | Lector de `game.toml` | MIT |
 | [SDL2](https://libsdl.org/) | Ventana, vídeo, audio y mandos | zlib |
 | [Zig](https://ziglang.org/) | Compilador de C/C++ del método ligero (solo al compilar) | MIT |

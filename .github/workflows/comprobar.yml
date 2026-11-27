@@ -1,7 +1,7 @@
 name: Comprobar
 
 # Comprobaciones que no necesitan la ROM: sintaxis de los scripts, que los parches
-# encajan en el gbarecomp y el recomp-ui fijados y las pruebas de los filtros y de las partidas.
+# encajan en el gbarecomp y el recomp-ui fijados y las pruebas de los filtros, las partidas, el juego en línea y el instalador de Linux.
 # (Compilar el juego entero necesita la ROM, que nunca se sube, así que no se hace aquí.)
 
 on:
@@ -19,6 +19,9 @@ env:
   GBARECOMP_COMMIT: edc2b80c73d83a2f35b9cfedaea0ea8d14647697
   # Ídem para RECOMP_UI_COMMIT (el menú de configuración).
   RECOMP_UI_COMMIT: 0546fbcb0126bb14bf88d2128b4fe8a4229570a3
+  # Ídem para recomp-net y rbengine (el juego en línea).
+  RECOMP_NET_COMMIT: 590de3eccb34475620702d03fc2b4ecc19de99f8
+  RBENGINE_COMMIT: 2a03e73693acee0fb78076ea058642c931bef12e
 
 jobs:
   linux:
@@ -49,6 +52,10 @@ jobs:
           grep -q "$GBARECOMP_COMMIT" tools/construir.ps1
           grep -q "$RECOMP_UI_COMMIT" tools/construir.sh
           grep -q "$RECOMP_UI_COMMIT" tools/construir.ps1
+          grep -q "$RECOMP_NET_COMMIT" tools/construir.sh
+          grep -q "$RECOMP_NET_COMMIT" tools/construir.ps1
+          grep -q "$RBENGINE_COMMIT" tools/construir.sh
+          grep -q "$RBENGINE_COMMIT" tools/construir.ps1
 
       - name: Sintaxis de bash y de Python
         run: |
@@ -76,6 +83,20 @@ jobs:
 
       - name: Pruebas de importar y exportar partidas del menú
         run: bash tools/pruebas/probar_partidas_menu.sh
+
+      - name: Pruebas del instalador, actualizador y desinstalador de Linux
+        run: bash tools/pruebas/probar_instalador_linux.sh
+
+      - name: Pruebas del juego en línea (códigos, nombres y conexión local)
+        run: bash tools/pruebas/probar_invitacion.sh
+
+      - name: Pruebas del juego en línea con routers NAT virtuales
+        # Necesita root, «ip» e «iptables»: en un ejecutor de GitHub funciona con sudo. No bloquea
+        # porque depende de lo que permita el ejecutor; si no puede, la prueba se omite sola.
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y --no-install-recommends iproute2 iptables >/dev/null
+          sudo -E bash tools/pruebas/probar_invitacion_nat.sh
 
       - name: Pruebas de la herramienta de partidas (PowerShell 7)
         shell: pwsh

@@ -20,6 +20,9 @@ resto de la GBA (PPU, DMA, temporizadores, audio, SRAM).
   (`MTP_SHARD_OPT`). Con `-O0` la pila del anfitrión se desborda tras unos 3.000
   fotogramas porque las llamadas en cola de la GBA se vuelven llamadas reales.
   En Windows el ejecutable reserva 256 MiB de pila.
+- **Juego en red** (0.5.0): `MTP_NETPLAY=ON` (por defecto) activa `GBARECOMP_NETPLAY` y compila
+  `recomp-net` y `rbengine` (MIT; `tools/construir.*` los fijan en `590de3ec…` y `2a03e736…`).
+  Sin ellos o con `-DMTP_NETPLAY=OFF` el programa se construye igual, sin la parte de red.
 - **BIOS libre**: 16 KiB de Cult-of-GBA (MIT), recompilada con una configuración
   generada de sus símbolos (`bios_libre/bios_libre.toml`). Su pantalla de
   arranque se queda esperando una interrupción, por eso `[bios] skip_intro = true`.
@@ -106,6 +109,27 @@ nombre de la carpeta que se le da: `externo/gbarecomp` → `parches/gbarecomp-*.
    el factor también se guarda para que el menú de Esc use `io.FontGlobalScale` y
    `ScaleAllSizes`. En Windows solo se aplica si el *hint* no es `unaware`/`0`. Para probarlo en
    cualquier sistema: `MTP_FACTOR_DPI=1.5`.
+
+9. **`0009-red-con-bios-libre-e-interprete`** (0.5.0), en `gba_bios.h`, `runtime.cpp`,
+   `multiplayer_runner.cpp`, `multiplayer_session.cpp`, `runtime_arm.cpp` y
+   `runtime_bus_bridge.cpp`. Tres cosas que el juego en red del framework no hacía y este juego
+   necesita:
+   - `supported_for_netplay(sha1)`: acepta la BIOS de Nintendo y la libre (`kFreeReplacementSha1`
+     `2e41f9d3…`). Antes la sesión de red exigía la de Nintendo.
+   - Código que se ejecuta con el intérprete (módulos de EWRAM, descompresor): en
+     `dispatch_resolve`, si hay contexto reanudable, guarda el PC, llama a
+     `runtime_suspend_dispatch()` (cede el turno al planificador conservando la pila de
+     llamadas del invitado) y devuelve; antes lanzaba «multiplayer requires native dispatch
+     coverage». `GbaMultiplayerSession::run_until` consulta `force_interp(pc, thumb)` y, si procede,
+     da un paso con `runtime_force_interp_step()` en lugar del despacho nativo.
+   - Rendimiento: `runtime_should_yield` (rama de sesión) consulta también el gancho
+     `g_runtime_force_interp_hook` y solo cede si el PC actual hay que interpretarlo, de modo que
+     el código nativo corre en trozos (hasta ≈ 63 ciclos de adelanto) en lugar de una instrucción por
+     vuelta (≈ 7 ticks/s → ≈ 58 ticks/s por instancia, en 2 núcleos con las dos instancias).
+10. **`0010-nombres-de-los-jugadores-en-red`** (0.5.0), en `multiplayer_launch.h` y
+    `multiplayer_runner.cpp`: `GbaNetplayLaunch::player_names` (un nombre por asiento) y
+    `host_overlay` (puntero a una función que dibuja el rótulo); el título de la ventana pasa a
+    «`<título>` - `Nombre1 vs Nombre2` - `<estado>`» y se llama a `window.set_host_overlay(...)`.
 
 **Los parches solo pueden modificar archivos existentes.** El aplicador de
 `tools/construir.ps1` (el del Windows ligero, sin git) entiende los *hunks* de
@@ -246,6 +270,23 @@ argumentos antes de llamar a `run_game()`.
      debe armarse con `std::string(ui_text("Open folder")) + "##copias"`; si no, no se traduce.
    - Regenerar el parche: copiar el árbol, aplicar 0001–0005 y `git diff` de los 3 archivos; el
      aplicador de Python elige los parches por el nombre de la carpeta (`recomp-ui`).
+
+7. **`recomp-ui-0007-jugar-online-por-codigo-de-invitacion`** (0.5.0), encima del 0006, en
+   `launcher_model.h` (`LNG_VIEW_ONLINE`), `launcher_i18n.cpp` (bloque «---- 0.5.0») y
+   `launcher_imgui.cpp` (`namespace enlinea` y `draw_enlinea`):
+   - La lógica no está en el parche: son funciones `extern "C"` de `src/invitacion.h`
+     (`mtp_inv_crear`, `mtp_inv_comprobar`, `mtp_inv_unirse`, `mtp_inv_responder`, `mtp_inv_estado`,
+     `mtp_inv_cancelar`, `mtp_inv_argumentos`, nombres…) que se compilan en el ejecutable.
+   - Modos de la pantalla: elegir / anfitrión / invitado. Al llegar `CONECTADO` arranca sola
+     (comprobación de ROM y BIOS como el botón «Jugar» y `request_mod_commit_launch`); al salir de la
+     pantalla o del menú se cancela la sala salvo que ya esté conectada o lanzada.
+   - `eyebrow_tracked` ahora recorre UTF-8 por caracteres (con bytes sueltos rompía «EN LÍNEA»).
+   - Regenerar el parche: copiar el árbol, aplicar 0001–0006 y `git diff` de los 3 archivos.
+
+8. **`recomp-ui-0008-aviso-de-version-segun-el-sistema`** (0.6.0), en `launcher_imgui.cpp` y
+   `launcher_i18n.cpp`: el aviso nombra `ACTUALIZAR.bat` con `_WIN32` y `tools/actualizar.sh` en el
+   resto (dos claves de traducción distintas; el texto se elige antes de llamar a `snprintf`, sin
+   directivas dentro de los argumentos).
 
 ### Aviso de versión: módulo y ajustes
 
@@ -434,6 +475,97 @@ estado de la CPU en cada paso) y compilar los *shards* con `-O2` en vez de `-O1`
   El instalador lo copia como `Partidas.ps1`/`Partidas.bat` y crea su acceso en el menú
   Inicio; el desinstalador conserva también `*.sav.*` (copias y `.original`).
 
+## Linux: instalador, actualizador y desinstalador (0.6.0)
+
+Los cuatro scripts son `bash` puro (4.2+; sin `jq` ni `rsync`):
+
+- `tools/comun.sh` (se carga con `source`): constantes (ROM, SHA-1, rutas XDG), mensajes, `preguntar_sn`,
+  `probar_rom`/`buscar_rom`, `huella_proyecto`, el manifiesto, `buscar_instalacion`, `calcular_nucleos` y
+  `solo_datos_de_usuario`. `MTP_PRUEBA_SIN="cmake sdl2"` simula herramientas que faltan y
+  `MTP_PRUEBA_ROM_SHA1` cambia el SHA-1 esperado (solo para las pruebas).
+- `tools/instalar.sh` se puede cargar con `source` sin ejecutar nada (las pruebas llaman a
+  `preparar_obra`, `probar_rom`…). Orden: herramientas → ROM → carpeta → compilar → copiar → accesos →
+  manifiesto → limpiar.
+  - **Herramientas**: `git cmake python3 ninja`, `g++` o `clang++`, y SDL2 (`pkg-config sdl2`,
+    `sdl2-config` o `sdl2-config.cmake`). Sin ellas, propone `apt-get`, `dnf`, `pacman` o `zypper`
+    (con `sudo` si no eres root) y, si `apt-get` falla, hace `apt-get update` y reintenta.
+  - **Carpeta de trabajo (obra)**: copia el proyecto sin `generated`, `generated_bios`, `juego`, `build`,
+    `externo`, `roms`, `.git` ni `__pycache__`; si ya existe, solo copia lo que cambia (con la fecha de
+    ahora: Ninja compara fechas) y borra lo que ya no está en el proyecto. Lleva una marca `.mtp-obra`:
+    solo se usa una carpeta vacía o que ya la tenga, y solo se borra si la tiene y no es el proyecto.
+    Si la ruta lleva espacios, usa `/var/tmp/MarioTennisPowerTour-obra-<uid>`.
+  - **Compilación**: `MTP_NUCLEOS=<n> bash <obra>/tools/construir.sh <obra>/roms/<rom>` con
+    `min(núcleos, memoria libre / 1,5 GiB)` procesos; la salida va también a
+    `~/.cache/MarioTennisPowerTour-instalador.log`.
+  - **Copia**: sustituye `assets/` y `bios_libre/` enteras, y los demás archivos que trae la compilación;
+    si ya existen, no toca `config.ini`, `keybinds.ini`, `launcher-window.ini`, `rom.cfg`, `bios.cfg`,
+    `roms/*.sav`, `roms/*.state[0-9]` ni `roms/*.gba`. Usa `cp --remove-destination` (se puede actualizar
+    con el juego abierto).
+  - **Accesos**: `~/.local/share/applications/mario-tennis-power-tour.desktop`
+    (`Exec="<destino>/jugar.sh"`, `Path`, `Categories=Game;`, `Icon=applications-games`, sin arte del
+    juego) y, con `--escritorio`, una copia en el Escritorio (`xdg-user-dir DESKTOP`, o `~/Escritorio` /
+    `~/Desktop`) con `gio set … metadata::trusted true`.
+  - **Manifiesto** `instalacion.cfg` (clave=valor): `producto`, `version`, `huella`, `fecha`, `destino`,
+    `obra`, `conservar_obra`, `acceso_menu`, `acceso_escritorio`. La huella es el SHA-256 de `game.toml`,
+    `CMakeLists.txt`, la BIOS libre, `construir.sh`, `jugar.sh`, `parches/` y `src/` (sin los `\r` de los
+    textos, para que un zip con CRLF dé la misma).
+- `tools/actualizar.sh` solo decide (¿está al día?, ¿qué ROM?, ¿qué accesos y obra conservar?) y lanza
+  `instalar.sh --actualizando …`.
+- `tools/desinstalar.sh` es independiente (se copia a la carpeta del juego): solo actúa si encuentra el
+  ejecutable y un `instalacion.cfg` con `producto=MarioTennisPowerTourRecomp`; no acepta `/`, `$HOME`,
+  `/usr`…; `--borrar-todo` hace `rm -rf` de la carpeta; si no, borra todo salvo los datos del usuario
+  (`capturas/`, `copias-de-partidas/`, `config.ini`, `keybinds.ini`, `launcher-window.ini`, `rom.cfg`,
+  `bios.cfg`, `roms/*.sav`, `roms/*.state[0-9]`). La lista de datos del usuario está en tres sitios
+  (`copiar_juego`, `solo_datos_de_usuario` y `desinstalar.sh`): si cambia, hay que tocar los tres.
+- Pruebas: `tools/pruebas/probar_instalador_linux.sh` (ver el README). La CI lo ejecuta en Ubuntu.
+
+## Jugar online (0.5.0)
+
+Sin servidor propio: `src/invitacion.cpp` hace el «saludo» entre los dos ordenadores y después
+lanza el juego con los argumentos del juego en red directo (`--netplay-bind`, `--netplay-peer`,
+`--netplay-seat`, `--netplay-session`, `--mtp-nombre`, `--mtp-nombre-amigo`), que `main.cpp` lee en
+`leer_opciones_de_red`.
+
+- **Dirección pública**: consulta STUN (RFC 5389, *Binding Request*) **desde el mismo puerto UDP** que
+  luego se usará para jugar, a los servidores de `[Online] StunServers` (o `MTP_STUN_SERVERS`; por
+  defecto `stun.l.google.com:19302 stun.cloudflare.com:3478 stun1.l.google.com:19302`). Si dos
+  servidores devuelven puertos distintos se avisa de NAT simétrico.
+- **Códigos**: 25 bytes (tipo, NAT, número de sala, marca de la versión, dirección pública y local,
+  CRC-32) en base32 de Crockford (sin I, L, O, U), 40 caracteres en grupos de 4; un cambio de un solo
+  carácter siempre se detecta. El de respuesta lleva el mismo número de sala. La marca de la versión
+  sale del identificador de compilación del juego en red (`GBARECOMP_NETPLAY_BUILD_ID`: motor, juego y
+  código generado): distinta marca ⇒ «tu amigo tiene otra versión».
+- **Perforación**: los dos lados envían paquetes «MTPI» + marca (4) + clase (1 = hola, 2 = enterado) +
+  rol (1) + longitud del nombre (1) + nombre en UTF-8 (≤ 24 bytes) a las direcciones pública y local
+  del otro, cada ~0,4–0,5 s, hasta que cada lado ha oído al otro y se han confirmado (el «enterado» se
+  sigue reenviando un instante). Plazos: el
+  invitado 45 s, el anfitrión 240 s. Tras la confirmación se espera un instante, se **libera el
+  puerto** y se lanza el juego con el mismo puerto local, de modo que el hueco abierto en el NAT sigue
+  valiendo.
+- **Nombres**: `limpiar_nombre` (UTF-8 válido, sin controles ni caracteres invisibles o de
+  dirección de escritura, ≤ 24 bytes, recortado). El propio va a `config.ini` (`[Online] Nombre`) con un
+  escritor de `ini` propio que respeta el resto del archivo (aquí `;` no es comentario: puede estar en
+  un nombre). El apodo solo vive en la sesión y gana al nombre que manda el amigo. El rótulo
+  (`rotulo_de_nombres` en `main.cpp`) lo pinta el anfitrión con `HostOverlay` los 12 primeros segundos
+  (los 2 últimos se desvanece) y no entra en la simulación.
+- **Dentro del juego**: `forzar_interprete_de_red`, `despacho_ram` y `preparar_instancia_de_red` en
+  `main.cpp` enganchan el código de RAM que el juego ejecuta con el intérprete a la sesión
+  (ver el parche 0009). La BIOS libre se recompila a `generated_bios` (código nativo, no interpretado).
+  Las dos máquinas tienen que ser idénticas (versión, ROM, código generado, BIOS): el «boot digest»
+  lo comprueba al arrancar.
+- **Lo que no se usa a propósito**: la pestaña *Netplay* del menú del framework (necesita un servidor de
+  salas de terceros).
+- **Pruebas** (sin ROM): `tools/pruebas/probar_invitacion.sh` (compila `prueba_invitacion.cpp` con
+  `invitacion.cpp`; códigos, errores, nombres, conexión local por *loopback*) y
+  `tools/pruebas/probar_invitacion_nat.sh` (cinco espacios de red con `ip netns`: anfitrión,
+  invitado, dos NAT con `iptables` —puerto conservado y filtro por dirección y puerto— y una
+  «Internet» con servidores STUN falsos de `stun_falso.py`; casos: casa+casa, simétrico en un lado y
+  en los dos, sin STUN). Necesita root; si falta algo se omite con código 0.
+- **Prueba con el juego** (a mano, con ROM): dos instancias en Xvfb o en dos espacios de red, cada una
+  con su `MTP_CONFIG_INI`; `GBA_SESSION_PROFILE=1` imprime el perfil por tick de la sesión.
+- Para matar el juego en pruebas: `pkill -9 -x MarioTennisPowe` (el nombre del proceso se recorta a 15
+  caracteres).
+
 ## Por qué no hay vista ampliada real (16:9 de verdad)
 
 El framework permite que un juego declare `view_width` mayor de 240 y dibuje
@@ -562,6 +694,13 @@ herramientas y lo ya compilado.
 | `MTP_IDIOMA_MENU=es\|en` | Fuerza el idioma de los menús (pruebas); manda sobre lo elegido en el selector |
 | `MTP_I18N_DEBUG=1` | Los menús escriben en `stderr` cada texto en inglés sin traducción (solo lo que pasa por la tabla; ver parche 0004) |
 | `MTP_URL_VERSION=https://…/VERSION` | Dirección del `VERSION` para el aviso de versión nueva (pruebas; manda sobre `config.ini`). Para pruebas locales vale `http://127.0.0.1:PUERTO/VERSION` |
+| `MTP_STUN_SERVERS="host:puerto …"` | Servidores STUN de «En línea» (separados por espacios o comas; manda sobre `[Online] StunServers` de `config.ini`) |
+| `MTP_INV_DEBUG=1` | «En línea» escribe en `stderr` los pasos del saludo (pruebas) |
+| `MTP_INV_PLAZO=N` | Sustituye los plazos del saludo por N segundos (pruebas) |
+| `MTP_INV_IP_LOCAL=a.b.c.d` | Fuerza la dirección local que se pone en el código (pruebas con redes virtuales) |
+| `MTP_INV_IDENTIDAD=…`, `MTP_INV_NONCE=…` | Fijan la marca de la versión y el número de sala del código (solo pruebas) |
+| `GBA_SESSION_PROFILE=1` | La sesión de red imprime el perfil por fotograma (rendimiento del juego en red) |
+| `MTP_NETPLAY=OFF` (CMake) | Compila sin juego en red (la pantalla «En línea» avisa de que esta compilación no lo incluye) |
 | `MTP_CONFIG_INI=ruta` | Ruta del `config.ini` donde los menús guardan el idioma (`[Menu] Language`); la fija `main.cpp` junto al ejecutable |
 | `SDL_WINDOWS_DPI_AWARENESS=unaware` | Vuelve a que Windows estire la ventana (por defecto `permonitorv2`) |
 | `MTP_FACTOR_DPI=1.5` | Simula un escalado del 150 % (para probar el ajuste de ventana y de menú en cualquier sistema) |

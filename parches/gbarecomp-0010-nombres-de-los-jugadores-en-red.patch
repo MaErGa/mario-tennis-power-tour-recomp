@@ -1,0 +1,47 @@
+--- a/src/runtime/multiplayer_launch.h
++++ b/src/runtime/multiplayer_launch.h
+@@ -12,6 +12,7 @@
+ 
+ namespace gba { class GbaBios; }
+ namespace gbarecomp {
++class HostOverlay;   // host_overlay.h
+ struct GbaInstance;
+ struct GbaNetplayLaunch;
+ 
+@@ -59,6 +60,11 @@
+     std::filesystem::path resume_path;
+     std::string program_id, build_identity, content_sha256;
+     void (*setup_instance)(GbaInstance&)=nullptr;
++    // PARCHE mario-tennis: nombre de cada jugador por asiento (el que se ha puesto la persona, no el
++    // del personaje del juego; "" = sin nombre) y capa de dibujo del host para enseñarlos en pantalla.
++    // Sirven solo para reconocerse: no entran en la identidad de la partida ni en la simulación.
++    std::array<std::string,kGbaMaxSessionPlayers> player_names;
++    void (*host_overlay)(HostOverlay*)=nullptr;
+     std::function<void()> pump_lobby;
+     // Installed by make_gba_netplay_launch. This dependency boundary keeps
+     // single-player games free of a recomp-net link requirement.
+--- a/src/runtime/multiplayer_runner.cpp
++++ b/src/runtime/multiplayer_runner.cpp
+@@ -124,6 +124,7 @@
+             boot.linear_filter,boot.sharp_filter,adaptive,true))
+         throw std::runtime_error("cannot open netplay window");
+     window.load_input_config(boot.config_directory.string().c_str(),false);
++    window.set_host_overlay(launch.host_overlay);   // PARCHE mario-tennis: rótulo con los nombres de los jugadores
+     window.set_fullscreen(boot.fullscreen); window.set_volume(boot.volume);
+     window.set_fps_readout(boot.show_fps);
+     std::uint16_t buttons=0;
+@@ -187,7 +188,13 @@
+             (closing || (match.checkpoint_pending() && !boot.finish_tick)) ?
+                 std::string("Saving and leaving - close again to discard") :
+             "Link cable - Player "+std::to_string(launch.seat_machine[launch.local_seat]+1)+" - Shift+F1 save and leave";
+-        const auto title=boot.title+" - "+status;
++        // PARCHE mario-tennis: «Matías vs Marta» en el título si los jugadores tienen nombre.
++        std::string who;
++        for (unsigned seat=0; seat<launch.player_count && seat<launch.player_names.size(); ++seat) {
++            if (launch.player_names[seat].empty()) continue;
++            who+=(who.empty() ? "" : " vs ")+launch.player_names[seat];
++        }
++        const auto title=boot.title+" - "+(who.empty() ? std::string() : who+" - ")+status;
+         if (title!=previous_title) { window.set_title(title.c_str()); previous_title=title; }
+         if (match.take_output(output)) {
+             // A mid-raster restore waits for a complete host image. Canonical

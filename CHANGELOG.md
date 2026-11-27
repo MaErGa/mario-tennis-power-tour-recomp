@@ -3,6 +3,103 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El número
 de versión está en el archivo `VERSION` (lo lee `ACTUALIZAR.bat` para saber si hay algo nuevo).
 
+## [0.6.0] — 2026-11-26
+
+### Añadido
+- **Linux como plataforma de primera clase**, con las mismas comodidades que en Windows:
+  - `tools/instalar.sh`: comprueba las herramientas (y, si faltan, propone la orden exacta para `apt`,
+    `dnf`, `pacman` o `zypper` y se ofrece a ejecutarla; `--instalar-dependencias` sin preguntar), busca y
+    verifica tu ROM (SHA-1), pregunta la carpeta de instalación (por defecto
+    `~/.local/share/MarioTennisPowerTour`), compila en una carpeta temporal
+    (`~/.cache/MarioTennisPowerTour-obra`, ≈ 700 MB; se borra salvo `--conservar-obra`), copia el juego,
+    crea la entrada del menú de aplicaciones (y con `--escritorio`, el acceso del Escritorio) y un
+    `desinstalar.sh` junto al juego. Opciones: `--rom`, `--destino`, `--escritorio`, `--sin-accesos`,
+    `--conservar-obra`, `--instalar-dependencias`, `--silencioso`, `--obra`, `--ayuda`.
+  - `tools/actualizar.sh`: encuentra solo la instalación, compara una huella del proyecto con la instalada (si
+    es igual, no hace nada; `--forzar` reinstala), reutiliza la ROM ya instalada y conserva partidas,
+    estados, capturas, ajustes y accesos; con la compilación conservada tarda segundos.
+  - `tools/desinstalar.sh`: quita accesos, carpeta de trabajo y juego; conserva (o no) partidas, estados,
+    capturas y ajustes. Solo borra carpetas que tengan `instalacion.cfg` de este juego.
+  - `tools/comun.sh` (funciones compartidas) y `tools/jugar.sh` ahora funciona desde cualquier carpeta y a
+    través del menú de aplicaciones.
+  - Medidas de seguridad: no instala en una carpeta con cosas ajenas, ni en la personal, ni dentro del proyecto;
+    la carpeta de trabajo solo se borra si es una que creó el instalador; la ruta no puede llevar `"`, `$`,
+    `\` ni acentos graves; un `%` en la ruta se escapa en el `.desktop`.
+- `tools/pruebas/probar_instalador_linux.sh`: 62 comprobaciones con un juego falso y un HOME temporal
+  (sin ROM, sin compilar): instalar, actualizar, rechazos, herramientas que faltan (simulado), ROM, carpeta de
+  trabajo, huella (estable y con CRLF), accesos, `%` en la ruta y desinstalar. La CI lo ejecuta.
+- Parche `recomp-ui-0008-aviso-de-version-segun-el-sistema`: el aviso de «hay una versión nueva» nombra
+  `ACTUALIZAR.bat` en Windows y `tools/actualizar.sh` en Linux (antes decía siempre `ACTUALIZAR.bat`).
+
+### Qué se ha comprobado y qué no
+- **Sí (Ubuntu 24.04, con tu ROM):** instalar de punta a punta (≈ 9 min en 2 núcleos, con la descarga de las
+  fuentes), arrancar desde la entrada del menú (llega a la pantalla de idiomas del juego), actualizar sin
+  cambios (no hace nada) y con `--forzar` (15 s con lo compilado conservado, sin tocar partidas ni ajustes),
+  y desinstalar conservando los datos; las 62 comprobaciones automáticas; el parche 0008 sobre copias limpias.
+- **No:** otras distribuciones (Fedora, Arch, openSUSE: solo se han escrito los nombres de sus paquetes),
+  escritorios reales (GNOME/KDE: la entrada sigue la especificación y no se ha visto en ninguno), tarjeta
+  gráfica, PipeWire/PulseAudio y mando reales, y el juego online entre dos casas.
+
+## [0.5.0] — 2026-11-25 (experimental)
+
+### Añadido
+- **Jugar online con un amigo, sin servidor.** Botón **«En línea»** en la cabecera del menú de
+  arranque. Uno crea una sala y le manda un **código de invitación**; el otro lo pega y devuelve un
+  **código de respuesta**; el primero lo pega y pulsa *Conectar*, y el juego arranca solo en modo cable
+  por red (con retroceso). No hay servidor ni cuenta nuestros: los dos ordenadores se conectan
+  directamente por UDP perforando el NAT. Solo se consulta **una vez** a un servidor STUN público
+  (por defecto Google y Cloudflare; cambiable con `[Online] StunServers` en `config.ini` o con
+  `MTP_STUN_SERVERS`) para saber la dirección pública. Los códigos (25 bytes con CRC-32, en base32
+  de 40 caracteres en grupos de 4) llevan la IP pública y la local, así que se dan solo al amigo.
+  - Avisa si la red parece un NAT simétrico o un CGNAT (lo más probable es que no conecte), si el
+    código está mal, si es el de otro tipo (invitación en lugar de respuesta), si el amigo tiene
+    otra versión u otra ROM y si no se llega a conectar a tiempo.
+  - **Nombres de los jugadores:** cada uno puede escribir **su nombre** (se envía al amigo al
+    conectar y se guarda en `config.ini`, `[Online] Nombre`) y poner un **apodo para el amigo** que
+    solo ve él (no se guarda). Sirven para identificaros por vuestro nombre y no por el del personaje
+    del juego: salen en el título de la ventana («Nombre1 vs Nombre2 - …») y como rótulo en la
+    ventana del anfitrión durante los primeros segundos (tu nombre en verde a la izquierda, el del
+    amigo en blanco a la derecha). Los nombres se limpian (UTF-8 válido, hasta 24 bytes, sin
+    caracteres de control ni invisibles) y no forman parte de la simulación. Para pruebas o para
+    conectar a mano por IP también valen `--mtp-nombre` y `--mtp-nombre-amigo`.
+  - Español e inglés.
+- `src/invitacion.h` y `src/invitacion.cpp` (la lógica, en C++ con API de C, sin depender del menú).
+- Pruebas que no necesitan la ROM: `tools/pruebas/probar_invitacion.sh` (códigos, errores, nombres
+  y conexión local; lo ejecuta la CI) y `tools/pruebas/probar_invitacion_nat.sh` (dos routers NAT
+  virtuales con `ip netns` e `iptables`, con un servidor STUN falso, `stun_falso.py`; necesita root y
+  se omite si no puede; la CI lo ejecuta sin bloquear).
+
+### Cambiado
+- El juego se compila **con el juego en red** por defecto (`MTP_NETPLAY=ON`, `GBARECOMP_NETPLAY=ON`).
+  `construir.sh` y `construir.ps1` descargan además `recomp-net` y `rbengine` (ambos MIT) en un
+  commit fijado (`590de3ec…` y `2a03e736…`): el `recomp-net` que trae gbarecomp no tiene
+  `host_relay.h`.
+- Parches nuevos, todos idempotentes:
+  - `gbarecomp-0009-red-con-bios-libre-e-interprete`: el juego en red acepta la BIOS libre; el código
+    que el juego ejecuta con el intérprete (EWRAM, descompresor) cede el turno al planificador de
+    la sesión en lugar de abortar con «multiplayer requires native dispatch coverage»; y el
+    planificador deja correr el código nativo en trozos de hasta unos 63 ciclos en vez de
+    instrucción a instrucción (de ≈ 7 a ≈ 58 ticks/s por instancia en el equipo de pruebas).
+  - `gbarecomp-0010-nombres-de-los-jugadores-en-red`: nombres en el título de la ventana y gancho
+    para el rótulo del anfitrión.
+  - `recomp-ui-0007-jugar-online-por-codigo-de-invitacion`: la pantalla «En línea».
+- Ejemplos de versión del aviso del README y de la plantilla de errores: 0.5.0/0.5.1.
+
+### Qué se ha comprobado y qué no
+- **Sí (Linux):** dos instancias reales del juego se conectan con el código, acuerdan el arranque
+  y avanzan más de 7.000 ticks por las pantallas de idioma y de elección de personaje sin errores
+  (≈ 58 ticks/s por instancia con las dos en un equipo de 2 núcleos); el protocolo con routers NAT
+  reales de Linux en redes virtuales; los nombres; y el recorrido completo de la interfaz con ventana
+  virtual. El módulo `invitacion.cpp` compila también para Windows (MinGW).
+- **No:** una conexión entre dos casas por internet; Windows real (ni el cortafuegos ni el
+  `.exe`); **un partido completo en línea**; sesiones largas; PC lentos.
+
+### Limitaciones
+- No funciona con NAT simétrico ni CGNAT (varios datos móviles, redes de empresa y algunas
+  operadoras), ni con IPv6 (solo IPv4).
+- Los dos jugadores necesitan exactamente la misma versión, ROM, código generado y BIOS libre.
+- Experimental: puede desincronizarse; no hay reconexión.
+
 ## [0.4.5] — 2026-11-20
 
 ### Añadido

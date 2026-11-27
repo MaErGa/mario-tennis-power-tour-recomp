@@ -1,10 +1,27 @@
 # Estado del proyecto (leer al retomar)
 
-Última comprobación: 20-nov-2026 (versión 0.4.5), en Linux (sandbox de 2 núcleos, sin tarjeta de
+Última comprobación: 26-nov-2026 (versión 0.6.0), en Linux (sandbox de 2 núcleos, sin tarjeta de
 sonido, sin Windows).
 
 ## Qué funciona
 
+- **Instalar, actualizar y desinstalar en Linux (0.6.0; `tools/instalar.sh`, `actualizar.sh`,
+  `desinstalar.sh`, `comun.sh`)**: comprobado en Ubuntu 24.04 con la ROM real y con 62 comprobaciones
+  automáticas (`tools/pruebas/probar_instalador_linux.sh`, con un juego falso y un HOME temporal).
+  Instalación desde cero en ≈ 9 min (2 núcleos, 8 GB), arranque desde la entrada del menú de
+  aplicaciones (pantalla de idiomas del juego), actualización sin cambios (no hace nada), con `--forzar`
+  y la compilación conservada (15 s, sin tocar partidas ni ajustes), y desinstalación conservando los datos.
+- **Jugar online por código de invitación (0.5.0, experimental; `src/invitacion.cpp`, parches
+  `gbarecomp-0009`, `gbarecomp-0010` y `recomp-ui-0007`)**: botón «En línea» → crear sala /
+  unirse → dos códigos → arranque solo en modo cable por red con retroceso. Con nombres de los
+  jugadores y apodo del amigo. Comprobado en Linux: (1) `tools/pruebas/probar_invitacion.sh`
+  (códigos, errores, nombres y conexión local); (2) `tools/pruebas/probar_invitacion_nat.sh`
+  con dos routers NAT virtuales (casa+casa conecta; simétrico en un lado, en los dos o sin STUN no
+  conecta y avisa); (3) dos instancias reales del juego conectadas desde la interfaz (ventana
+  virtual): acuerdan el arranque («boot digest agreed») y avanzan más de 7.000 ticks por las
+  pantallas de idioma y de elección de personaje sin errores, a ≈ 58 ticks/s cada una en 2 núcleos;
+  (4) los nombres salen en el rótulo y en el título; (5) el módulo compila para Windows (MinGW).
+  **Pendiente:** ver «Qué no se ha comprobado».
 - Compilación desde cero con `tools/construir.sh` (descarga gbarecomp y
   recomp-ui, aplica `parches/`, recompila BIOS libre y ROM, compila, monta `juego/`).
 - **Compilación ligera para Windows (`tools/construir.ps1`)**: sin MSYS2, sin git y
@@ -162,6 +179,18 @@ sonido, sin Windows).
 
 ## Qué no se ha comprobado
 
+- **Linux (0.6.0)**: otras distribuciones (los nombres de paquetes de `dnf`, `pacman` y `zypper` están
+  escritos de memoria, sin probar), escritorios reales (GNOME, KDE…: la entrada `.desktop` sigue la
+  especificación, pero no se ha visto en el menú de ninguno, ni el «permitir ejecutar» del acceso del
+  Escritorio), pantalla con tarjeta gráfica real y Wayland, sonido real (PipeWire/PulseAudio), mando, y el
+  comportamiento con `ufw`/`firewalld` en el juego online.
+- **Jugar online (0.5.0)**: una conexión **entre dos casas por internet de verdad** (solo se
+  probó con redes virtuales y con el bucle local); **Windows** (cortafuegos, `.exe`, la
+  pantalla «En línea» con un mando o el teclado en un Windows real); **un partido completo en
+  línea** (solo se llegó a las pantallas previas al partido, no se jugó un punto contra el otro);
+  sesiones largas y posibles desincronizaciones; rendimiento en PC lentos (cada equipo simula las
+  dos consolas); redes con NAT simétrico o CGNAT (se sabe que no conectan; no se ha hecho ningún
+  intento de relé porque exigiría un servidor).
 - **Novedades de 0.3.0 a 0.4.5 en un Windows real** (además de lo dicho arriba sobre el DPI; F10
   **sí** se comprobó en un Windows real el 16-nov-2026 con capturas del juego; si en otro equipo
   no responde, `[KeyMap] Screenshot = F11`): los filtros y el avance rápido se
@@ -207,13 +236,20 @@ sonido, sin Windows).
   instalador sigue en la consola. El registro queda en
   `%TEMP%\mario-tennis-instalador.log`.
 - **Sonido real** por altavoces/mando.
-- Torneos completos, minijuegos, modos con cable, partidos dobles largos,
+- Torneos completos, minijuegos, modos con cable sin red, partidos dobles largos,
   un ciclo completo de jugar, guardar desde el juego y volver a abrir (la SRAM está
   configurada, se carga y se vuelca bien, pero no se ha jugado hasta un punto de guardado).
 - Mandos reales (solo se probó el teclado simulado).
 
 ## Limitaciones conocidas
 
+- **Linux**: el instalador compila en tu equipo (hace falta un compilador de C++, ≈ 2 GB libres y unos
+  9 minutos en 2 núcleos); no hay paquete ni AppImage (el programa contiene el código del juego traducido y
+  no se puede publicar ya compilado). El icono de la entrada del menú es genérico del tema.
+- **Jugar online**: solo conecta si los routers permiten la perforación de NAT (no con NAT simétrico
+  ni CGNAT), solo con IPv4, y exige idéntica versión, ROM, código generado y BIOS libre en los dos.
+  Sin servidor de relé ni reconexión. El rótulo con los nombres solo lo dibuja el anfitrión (el
+  invitado ve el título de su ventana), y no es parte de la simulación.
 - Parte del juego (módulos de código de EWRAM, rutinas copiadas a la zona de
   pila, el descompresor) se ejecuta con el intérprete del runtime: es correcto
   pero más lento que el código recompilado.
