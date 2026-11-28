@@ -17,6 +17,7 @@ copias-de-partidas/
 capturas/
 *.sav.*
 *.state[0-9]
+*.state[0-9].info
 # Basura de Python y de las pruebas
 __pycache__/
 recomp_cache/

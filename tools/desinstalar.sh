@@ -9,7 +9,7 @@
 # aplicaciones y el acceso del Escritorio, la carpeta de trabajo que se hubiera conservado, y el juego.
 # Tu ROM original no se toca (solo se borra la copia que hay dentro de la carpeta del juego).
 # «Conservar» deja en la carpeta del juego: config.ini, keybinds.ini, launcher-window.ini, rom.cfg,
-# bios.cfg, las partidas (.sav), los estados (.state1…9), las capturas y las copias de partidas.
+# bios.cfg, las partidas (.sav), los estados (.state1…9 y sus nombres .info), las capturas y las copias de partidas.
 set -euo pipefail
 
 principal() {
@@ -79,7 +79,8 @@ principal() {
                -o -path "$destino/copias-de-partidas" -o -path "$destino/copias-de-partidas/*" \
                -o -path "$destino/config.ini" -o -path "$destino/keybinds.ini" -o -path "$destino/launcher-window.ini" \
                -o -path "$destino/rom.cfg" -o -path "$destino/bios.cfg" \
-               -o -path "$destino/roms/*.sav" -o -path "$destino/roms/*.state[0-9]" \) -prune \
+               -o -path "$destino/roms/*.sav" -o -path "$destino/roms/*.state[0-9]" \
+               -o -path "$destino/roms/*.state[0-9].info" \) -prune \
             -o \( -type f -o -type l \) -exec rm -f {} +
         find "$destino" -mindepth 1 -depth -type d -empty -delete 2>/dev/null || true
         echo "   [OK] Juego borrado. Se han conservado tus partidas, estados, capturas y ajustes en $destino"

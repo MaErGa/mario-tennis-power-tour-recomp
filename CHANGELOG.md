@@ -3,6 +3,37 @@
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/). El número
 de versión está en el archivo `VERSION` (lo lee `ACTUALIZAR.bat` para saber si hay algo nuevo).
 
+## [0.7.0] — 2026-11-28
+
+Calidad de vida: estados guardados con nombre, rebobinado y avance rápido ajustable.
+
+### Añadido
+- **Herramientas de ayuda** del framework, activadas en el juego (antes estaban apagadas):
+  - **Rebobinar**: mantén **1** (o el gatillo izquierdo del mando) y el juego vuelve atrás de 1 s en 1 s
+    (repite cada medio segundo mientras lo mantienes). Guarda un punto cada 10 fotogramas de los últimos
+    30 segundos, solo en memoria (≈ +70 MB de RAM una vez lleno; sin efecto medible en la CPU).
+  - **Avance rápido ajustable**: mantén **2** (o el gatillo derecho), o fíjalo desde `Esc → Herramientas`
+    («Avance rápido»); la velocidad (de 2× a 10×, por defecto 4×) se cambia en `Esc → Herramientas` y en el
+    menú de arranque (botón «Herramientas»). **Tab** sigue siendo el turbo de siempre, con la misma velocidad.
+  - **Estados guardados con nombre**: `Esc → Estados guardados` lista las 9 ranuras; **Intro** sobre una
+    ranura le pone nombre (también a una vacía: el nombre se conserva al guardar encima). Sin nombre,
+    la ranura enseña la fecha del guardado. El nombre y la fecha van en `roms/<rom>.stateN.info`
+    (texto plano de dos líneas).
+  - **Avisos en pantalla** al guardar, cargar (o intentar cargar una ranura vacía) y rebobinar, con la
+    ranura, su nombre y cuánto se ha vuelto atrás. Antes las teclas F1–F9 no decían nada.
+  - Menú de arranque: botón «Herramientas» (activar/desactivar las herramientas y velocidad del avance
+    rápido) y atajos de rebobinar / avance rápido en «Configurar», todo en español.
+- Parches `gbarecomp-0011-herramientas-de-ayuda-con-avisos-y-nombres` y
+  `recomp-ui-0009-herramientas-de-ayuda-en-espanol`.
+- Los instaladores y desinstaladores de Linux (y el desinstalador de Windows) conservan también los
+  nombres de los estados (`.state1.info` …); el desinstalador de Windows ahora conserva los estados.
+  El test del instalador de Linux pasa a 64 comprobaciones.
+
+### Cambiado
+- Si desactivas las herramientas de ayuda en el menú de arranque, también dejan de funcionar los estados
+  (F1–F9), el turbo (Tab) y el rebobinado (así lo hace el framework). Vienen activadas.
+- Al jugar online (cable por red) las herramientas no se usan: es otro bucle de juego.
+
 ## [0.6.0] — 2026-11-26
 
 ### Añadido

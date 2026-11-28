@@ -175,7 +175,8 @@ solo_datos_de_usuario() {
            -o -path "$d/copias-de-partidas" -o -path "$d/copias-de-partidas/*" \
            -o -path "$d/config.ini" -o -path "$d/keybinds.ini" -o -path "$d/launcher-window.ini" \
            -o -path "$d/rom.cfg" -o -path "$d/bios.cfg" \
-           -o -path "$d/roms/*.sav" -o -path "$d/roms/*.state[0-9]" \) -prune \
+           -o -path "$d/roms/*.sav" -o -path "$d/roms/*.state[0-9]" \
+           -o -path "$d/roms/*.state[0-9].info" \) -prune \
         -o \( -type f -o -type l \) -print -quit 2>/dev/null)"
     [ -z "$otro" ]
 }

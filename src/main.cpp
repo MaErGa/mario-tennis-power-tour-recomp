@@ -375,6 +375,17 @@ int main(int argc, char** argv) {
         preparar_instancia_de_red);
 #endif
 
+    // Herramientas de ayuda del framework (0.7.0): guardar/cargar estado en 9 ranuras, avance
+    // rápido fijo o ajustable y rebobinado. Van en la ventana de juego normal; el juego en red
+    // usa otro bucle (cable link) y no las toca. El rebobinado guarda una copia del estado cada
+    // 10 fotogramas (≈ 6 por segundo) de los últimos 30 segundos, solo en memoria.
+    opts.expose_assist_tools                   = true;
+    opts.assist_tools_enabled_by_default       = true;
+    opts.assist_fast_forward_multiplier_default = 4;
+    opts.save_state_slot_count                 = 9;
+    opts.rewind_history_seconds                = 30;
+    opts.rewind_capture_interval_frames        = 10;
+
     // Menú previo al arranque.
     opts.launcher_region      = "EUR";
     opts.launcher_game_config = "game.toml";

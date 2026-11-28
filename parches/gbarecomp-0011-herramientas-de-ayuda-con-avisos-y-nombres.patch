@@ -1,0 +1,348 @@
+--- a/src/runtime/runtime.cpp
++++ b/src/runtime/runtime.cpp
+@@ -237,6 +237,104 @@
+     int tcp_observe_port = 0;
+ };
+ 
++// PARCHE mario-tennis: nombres de los estados guardados (0.7.0). Cada ranura puede llevar un
++// nombre puesto por la persona y la fecha del último guardado, en un fichero de dos líneas junto
++// al estado («<estado>.info»: «nombre=…» y «fecha=dd/mm/aaaa hh:mm»). Sin nombre, la ranura enseña
++// la fecha. Es texto plano: se puede abrir, copiar o borrar a mano sin que el estado se estropee.
++struct MtpInfoEstado {
++    std::string nombre;   // puesto por la persona (vacío: se enseña la fecha)
++    std::string fecha;    // fecha del último guardado (vacío: no consta)
++};
++
++[[maybe_unused]] std::string mtp_ruta_info(const std::string& ruta_estado) {
++    return ruta_estado + ".info";
++}
++
++[[maybe_unused]] MtpInfoEstado mtp_leer_info(const std::string& ruta_estado) {
++    MtpInfoEstado r;
++    std::ifstream f(mtp_ruta_info(ruta_estado));
++    std::string linea;
++    while (std::getline(f, linea)) {
++        if (!linea.empty() && linea.back() == '\r') linea.pop_back();
++        const std::size_t igual = linea.find('=');
++        if (igual == std::string::npos) continue;
++        const std::string clave = linea.substr(0, igual);
++        const std::string valor = linea.substr(igual + 1);
++        if (clave == "nombre") r.nombre = valor;
++        else if (clave == "fecha") r.fecha = valor;
++    }
++    return r;
++}
++
++// Sin los caracteres de control, sin espacios en los extremos y como mucho 60 bytes (sin partir
++// un carácter UTF-8 por la mitad).
++[[maybe_unused]] std::string mtp_limpiar_nombre(std::string_view in) {
++    std::string t;
++    for (const char ch : in)
++        t.push_back(static_cast<unsigned char>(ch) < 0x20 || ch == 0x7f ? ' ' : ch);
++    std::size_t ini = 0;
++    while (ini < t.size() && t[ini] == ' ') ++ini;
++    std::size_t fin = t.size();
++    while (fin > ini && t[fin - 1] == ' ') --fin;
++    t = t.substr(ini, fin - ini);
++    if (t.size() > 60) {
++        std::size_t corte = 60;
++        while (corte > 0 && (static_cast<unsigned char>(t[corte]) & 0xC0) == 0x80) --corte;
++        t.resize(corte);
++        while (!t.empty() && t.back() == ' ') t.pop_back();
++    }
++    return t;
++}
++
++[[maybe_unused]] void mtp_escribir_info(const std::string& ruta_estado, const MtpInfoEstado& info) {
++    const std::string ruta = mtp_ruta_info(ruta_estado);
++    std::error_code ec;
++    if (info.nombre.empty() && info.fecha.empty()) {
++        std::filesystem::remove(ruta, ec);
++        return;
++    }
++    std::ofstream f(ruta, std::ios::trunc);
++    if (!f) return;
++    f << "nombre=" << info.nombre << "\n" << "fecha=" << info.fecha << "\n";
++}
++
++[[maybe_unused]] std::string mtp_formato_fecha(std::time_t t) {
++    std::tm tm{};
++#if defined(_WIN32)
++    localtime_s(&tm, &t);
++#else
++    localtime_r(&t, &tm);
++#endif
++    char buf[32];
++    std::strftime(buf, sizeof(buf), "%d/%m/%Y %H:%M", &tm);
++    return buf;
++}
++
++[[maybe_unused]] std::string mtp_fecha_ahora() {
++    return mtp_formato_fecha(std::time(nullptr));
++}
++
++// Fecha que se enseña de un estado: la anotada al guardar o, si no consta (un estado de una versión
++// anterior), la de modificación del fichero. Vacía si el estado no existe.
++[[maybe_unused]] std::string mtp_fecha_de_estado(const std::string& ruta_estado,
++                                                 const MtpInfoEstado& info) {
++    std::error_code ec;
++    if (!std::filesystem::exists(ruta_estado, ec) || ec) return "";
++    if (!info.fecha.empty()) return info.fecha;
++    const auto ft = std::filesystem::last_write_time(ruta_estado, ec);
++    if (ec) return "";
++    const auto sys = std::chrono::time_point_cast<std::chrono::system_clock::duration>(
++        ft - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
++    return mtp_formato_fecha(std::chrono::system_clock::to_time_t(sys));
++}
++
++// Lo que se enseña de una ranura: su nombre o, sin nombre, la fecha del guardado.
++[[maybe_unused]] std::string mtp_texto_de_estado(const std::string& ruta_estado) {
++    const MtpInfoEstado info = mtp_leer_info(ruta_estado);
++    if (!info.nombre.empty()) return info.nombre;
++    return mtp_fecha_de_estado(ruta_estado, info);
++}
++
+ #if defined(GBARECOMP_RUNTIME_UI)
+ // Engine-owned extra item: which slot the menu's Save/Load act on. The
+ // standard catalog's save_state/load_state are bare actions with no slot
+@@ -248,6 +346,8 @@
+ #define GBARECOMP_UI_KEY_FAST_FORWARD   "assist.fast_forward"
+ #define GBARECOMP_UI_KEY_FAST_FORWARD_SPEED "assist.fast_forward_speed"
+ #define GBARECOMP_UI_KEY_REWIND          "assist.rewind"
++// PARCHE mario-tennis: filas «Slot N» de la sección «Saved states» (clave + número de ranura).
++#define GBARECOMP_UI_PREFIJO_NOMBRE_ESTADO "mtp.state_name."
+ 
+ struct RuntimeUiContext {
+     HostWindow* window = nullptr;
+@@ -266,6 +366,15 @@
+     bool assist_tools_enabled = true;
+     bool fast_forward_latched = false;
+     int fast_forward_multiplier = 4;
++    // PARCHE mario-tennis: ruta del estado de cada ranura y lo que enseña cada fila (se relee como
++    // mucho una vez por segundo, o al cambiarla, para no abrir un fichero por fotograma).
++    std::function<std::string(int)> slot_path;
++    struct FilaEstado {
++        bool valida = false;
++        std::chrono::steady_clock::time_point leida{};
++        std::string texto;
++    };
++    FilaEstado filas_estado[11];
+     // Game-supplied handlers for keys the engine does not own.
+     const RunOptions* opts = nullptr;
+ };
+@@ -367,11 +476,31 @@
+     return 0;
+ }
+ 
++// Número de ranura de una fila «Slot N» (0 si la clave no es de ese tipo).
++int mtp_ranura_de_fila(const RecompRuntimeUiItem* item) {
++    const std::size_t n = std::strlen(GBARECOMP_UI_PREFIJO_NOMBRE_ESTADO);
++    if (!item || !item->key || std::strncmp(item->key, GBARECOMP_UI_PREFIJO_NOMBRE_ESTADO, n) != 0)
++        return 0;
++    const int ranura = std::atoi(item->key + n);
++    return ranura >= 1 && ranura <= 10 ? ranura : 0;
++}
++
+ #if defined(RECOMP_RUNTIME_UI_HAS_TEXT)
+ int runtime_ui_get_text(void* opaque, const RecompRuntimeUiItem* item,
+                         char* buf, std::size_t buf_size) {
+     auto* c = static_cast<RuntimeUiContext*>(opaque);
+     if (!c || !item || !buf || buf_size == 0) return 0;
++    if (const int ranura = mtp_ranura_de_fila(item); ranura && c->slot_path) {
++        auto& fila = c->filas_estado[ranura];
++        const auto ahora = std::chrono::steady_clock::now();
++        if (!fila.valida || ahora - fila.leida > std::chrono::seconds(1)) {
++            fila.texto = mtp_texto_de_estado(c->slot_path(ranura));
++            fila.leida = ahora;
++            fila.valida = true;
++        }
++        std::snprintf(buf, buf_size, "%s", fila.texto.c_str());
++        return 1;
++    }
+     if (c->opts && c->opts->ui_get_text)
+         return c->opts->ui_get_text(item->key, buf, buf_size);
+     return 0;
+@@ -381,6 +510,17 @@
+                         const char* value) {
+     auto* c = static_cast<RuntimeUiContext*>(opaque);
+     if (!c || !item || !value) return 0;
++    if (const int ranura = mtp_ranura_de_fila(item); ranura && c->slot_path) {
++        const std::string ruta = c->slot_path(ranura);
++        MtpInfoEstado info = mtp_leer_info(ruta);
++        std::string nombre = mtp_limpiar_nombre(value);
++        // Si la persona deja la fecha tal cual (es lo que había en el campo), no es un nombre.
++        if (nombre == mtp_fecha_de_estado(ruta, info)) nombre.clear();
++        info.nombre = nombre;
++        mtp_escribir_info(ruta, info);
++        c->filas_estado[ranura].valida = false;
++        return 1;
++    }
+     if (c->opts && c->opts->ui_set_text)
+         return c->opts->ui_set_text(item->key, value);
+     return 0;
+@@ -396,6 +536,7 @@
+         std::strcmp(item->key, GBARECOMP_UI_KEY_ASSIST_ENABLED) != 0 &&
+         (std::strncmp(item->key, "assist.", 7) == 0 ||
+          std::strcmp(item->key, GBARECOMP_UI_KEY_STATE_SLOT) == 0 ||
++         mtp_ranura_de_fila(item) != 0 ||
+          std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_SAVE_STATE) == 0 ||
+          std::strcmp(item->key, RECOMP_RUNTIME_UI_KEY_LOAD_STATE) == 0))
+         return c->assist_tools_enabled;
+@@ -3326,6 +3467,24 @@
+                 rewind_item.type        = RECOMP_RUNTIME_UI_ACTION;
+                 runtime_ui_extras.push_back(rewind_item);
+             }
++#if defined(RECOMP_RUNTIME_UI_HAS_TEXT)
++            // PARCHE mario-tennis: una fila por ranura con su nombre (o la fecha del guardado);
++            // Intro la edita. Las cadenas son estáticas: el menú guarda los punteros.
++            static char claves_estado[10][32];
++            static char etiquetas_estado[10][16];
++            for (int n = 1; n <= runtime_ui_context.state_slot_count && n <= 10; ++n) {
++                std::snprintf(claves_estado[n - 1], sizeof(claves_estado[n - 1]), "%s%d",
++                              GBARECOMP_UI_PREFIJO_NOMBRE_ESTADO, n);
++                std::snprintf(etiquetas_estado[n - 1], sizeof(etiquetas_estado[n - 1]), "Slot %d", n);
++                RecompRuntimeUiItem name_item{};
++                name_item.key         = claves_estado[n - 1];
++                name_item.section     = "Saved states";
++                name_item.label       = etiquetas_estado[n - 1];
++                name_item.description = "Press Enter to name this state.";
++                name_item.type        = RECOMP_RUNTIME_UI_TEXT;
++                runtime_ui_extras.push_back(name_item);
++            }
++#endif
+         }
+ 
+         RecompRuntimeUiItem fps_item{};
+@@ -3369,6 +3528,9 @@
+         p.replace_extension(".state" + std::to_string(slot));
+         return p.string();
+     };
++#if defined(GBARECOMP_RUNTIME_UI)
++    runtime_ui_context.slot_path = slot_path;   // PARCHE mario-tennis: nombres de los estados
++#endif
+     // Mobile suspend: a state written whenever the OS backgrounds the app,
+     // plus a marker that exists only while the app is suspended. If the OS
+     // kills the process in the background the marker survives, and the next
+@@ -3457,6 +3619,23 @@
+     uint64_t mtp_turbo_imagenes = 0;
+     bool mtp_titulo_turbo = false;
+     const bool mtp_diag = std::getenv("GBARECOMP_MTP_DIAG") != nullptr;
++    // Avisos sobre el juego (estado guardado, cargado, rebobinado): sin ellos las teclas F1-F9 y
++    // la de rebobinar no dicen nada. Vive ~2 s; el menú no lleva reloj propio y se retira aquí.
++    MtpReloj::time_point mtp_aviso_hasta{};
++    auto mtp_aviso = [&](const char* titulo, const std::string& cuerpo) {
++#if defined(GBARECOMP_RUNTIME_UI)
++        if (!runtime_ui_context.ui) return;
++        recomp_runtime_ui_set_toast(runtime_ui_context.ui, titulo, cuerpo.c_str());
++        mtp_aviso_hasta = MtpReloj::now() + std::chrono::milliseconds(2200);
++#else
++        (void)titulo; (void)cuerpo;
++#endif
++    };
++    // «#3 · Saque de Peach» / «#3 · 27/11/2026 18:05»: neutro en idioma (el título sí se traduce).
++    auto mtp_cuerpo_ranura = [&](int ranura) {
++        std::string t = mtp_texto_de_estado(slot_path(ranura));
++        return "#" + std::to_string(ranura) + (t.empty() ? "" : " \xC2\xB7 " + t);
++    };
+     auto mtp_inicio_gancho = [&]() {
+         mtp_h0 = MtpReloj::now();
+         mtp_espera_ms = 0;
+@@ -3858,6 +4037,13 @@
+             input_record_last_value = recorded_keys;
+         }
+         if (ev.quit) host_quit = true;
++#if defined(GBARECOMP_RUNTIME_UI)
++        if (mtp_aviso_hasta.time_since_epoch().count() != 0 && runtime_ui_context.ui &&
++            MtpReloj::now() >= mtp_aviso_hasta) {
++            recomp_runtime_ui_set_toast(runtime_ui_context.ui, nullptr, nullptr);
++            mtp_aviso_hasta = MtpReloj::time_point{};
++        }
++#endif
+         if (ev.enter_background || ev.terminating) {
+             // The OS may kill a backgrounded app without further notice:
+             // persist the cartridge save, a suspend state and the session's
+@@ -3990,7 +4176,16 @@
+                 std::printf("savestate_saved slot=%d path=\"%s\"\n",
+                             ev.save_slot, path.c_str());
+                 std::fflush(stdout);
++                // El nombre que la persona le puso a la ranura se conserva; la fecha se renueva.
++                MtpInfoEstado info = mtp_leer_info(path);
++                info.fecha = mtp_fecha_ahora();
++                mtp_escribir_info(path, info);
++#if defined(GBARECOMP_RUNTIME_UI)
++                runtime_ui_context.filas_estado[ev.save_slot].valida = false;
++#endif
++                mtp_aviso("State saved", mtp_cuerpo_ranura(ev.save_slot));
+             } else {
++                mtp_aviso("Could not save state", "#" + std::to_string(ev.save_slot));
+                 std::fprintf(stderr,
+                              "[gbarecomp:runtime] savestate save (slot %d) "
+                              "failed: %s\n", ev.save_slot, e.c_str());
+@@ -4021,10 +4216,15 @@
+                 if (pacer) pacer->reset();
+                 rewind_history.clear();
+                 next_rewind_capture_frame = ppu.frame_count();
++                mtp_aviso("State loaded", mtp_cuerpo_ranura(ev.load_slot));
+             } else {
+                 std::fprintf(stderr,
+                              "[gbarecomp:runtime] savestate load (slot %d) "
+                              "failed: %s\n", ev.load_slot, e.c_str());
++                std::error_code ec_estado;
++                mtp_aviso(std::filesystem::exists(path, ec_estado) ? "Could not load state"
++                                                                   : "Empty slot",
++                          "#" + std::to_string(ev.load_slot));
+             }
+         }
+         bool rewind_requested = ev.rewind;
+@@ -4047,6 +4247,7 @@
+                 std::fprintf(stderr,
+                              "[gbarecomp:runtime] rewind history is not "
+                              "ready yet\n");
++                mtp_aviso("Nothing to rewind yet", "");
+             } else {
+                 std::string e;
+                 if (do_savestate_load_bytes(
+@@ -4062,6 +4263,12 @@
+                                 static_cast<unsigned long long>(
+                                     ppu.frame_count()));
+                     std::fflush(stdout);
++                    {
++                        char atras[32];
++                        std::snprintf(atras, sizeof(atras), "-%.1f s",
++                                      static_cast<double>(current - ppu.frame_count()) / 59.7275);
++                        mtp_aviso("Rewound", atras);
++                    }
+                 } else {
+                     std::fprintf(stderr,
+                                  "[gbarecomp:runtime] rewind failed: %s\n",
+--- a/src/runtime/host_window.cpp
++++ b/src/runtime/host_window.cpp
+@@ -1811,13 +1811,18 @@
+ void render_host_layers(Backend* b) {
+ #if defined(GBARECOMP_RUNTIME_UI)
+     const bool menu_open = runtime_menu_open(b);
++    // PARCHE mario-tennis: los avisos (estado guardado, rebobinado...) se ven también con el
++    // menú cerrado; sin esto solo se dibujaban sobre el menú.
++    const bool aviso = !menu_open && b->runtime_ui &&
++                       recomp_runtime_ui_toast_visible(b->runtime_ui);
+ #else
+     const bool menu_open = false;
++    const bool aviso = false;
+ #endif
+     const bool chrome = !menu_open &&
+         (b->host_overlay || (b->pad_visible && b->touch_controls) ||
+          pad_toggle_available(b) || touch_input_enabled(b));
+-    if (!chrome && !menu_open) return;
++    if (!chrome && !menu_open && !aviso) return;
+ 
+     // Native GBA presentation uses a 240x160 SDL logical size. Host chrome
+     // renders into the full drawable, then the exact game state is restored.
+@@ -1838,7 +1843,7 @@
+         ImGui::NewFrame();
+         ImGuiOverlay ov(b, ImGui::GetBackgroundDrawList(), now);
+         draw_host_chrome(b, ov, menu_open);
+-        if (menu_open) recomp_runtime_ui_render_imgui(b->runtime_ui);
++        if (menu_open || aviso) recomp_runtime_ui_render_imgui(b->runtime_ui);
+         ImGui::Render();
+         ImGui_ImplSDLRenderer2_RenderDrawData(ImGui::GetDrawData(), b->renderer);
+     } else

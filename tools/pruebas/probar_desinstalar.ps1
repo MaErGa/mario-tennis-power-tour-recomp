@@ -5,7 +5,7 @@
 .DESCRIPTION
     Monta una instalación falsa en una carpeta temporal (sin tocar el registro ni el sistema),
     ejecuta el desinstalador de verdad y comprueba que:
-      - con -ConservarPartidas quedan las partidas (.sav y sus copias), config.ini, keybinds.ini y
+      - con -ConservarPartidas quedan las partidas (.sav y sus copias), los estados (.state1 y su .info), config.ini, keybinds.ini y
         la carpeta capturas, y se borra todo lo demás;
       - sin -ConservarPartidas no queda nada.
     Funciona con PowerShell 5.1 (Windows) y con PowerShell 7 (Windows, Linux, macOS).
@@ -27,7 +27,7 @@ function Montar-Instalacion {
     New-Item -ItemType Directory -Force -Path (Join-Path $carpeta 'capturas') | Out-Null
     Copy-Item -LiteralPath $desinstalador -Destination (Join-Path $carpeta 'Desinstalar.ps1')
     Set-Content -LiteralPath (Join-Path $carpeta 'instalacion.json') -Value '{ "producto": "MarioTennisPowerTourRecomp", "accesos": [], "registro": null, "obra": null }'
-    foreach ($f in @('MarioTennisPowerTourRecomp.exe', 'SDL2.dll', 'roms/mario_tennis.sav', 'roms/mario_tennis.sav.copia1',
+    foreach ($f in @('MarioTennisPowerTourRecomp.exe', 'SDL2.dll', 'roms/mario_tennis.sav', 'roms/mario_tennis.sav.copia1', 'roms/mario_tennis.state1', 'roms/mario_tennis.state1.info',
                      'config.ini', 'keybinds.ini', 'capturas/MarioTennis_2026-11-11_10-00-00.png', 'capturas/otra.png')) {
         Set-Content -LiteralPath (Join-Path $carpeta $f) -Value 'x'
     }
@@ -45,6 +45,7 @@ $codigo = Ejecutar $c @('-ConservarPartidas')
 Comprobar 'termina bien' ($codigo -eq 0)
 Comprobar 'conserva la partida' (Test-Path -LiteralPath (Join-Path $c 'roms/mario_tennis.sav'))
 Comprobar 'conserva la copia de la partida' (Test-Path -LiteralPath (Join-Path $c 'roms/mario_tennis.sav.copia1'))
+Comprobar 'conserva los estados y sus nombres' ((Test-Path -LiteralPath (Join-Path $c 'roms/mario_tennis.state1')) -and (Test-Path -LiteralPath (Join-Path $c 'roms/mario_tennis.state1.info')))
 Comprobar 'conserva config.ini y keybinds.ini' ((Test-Path -LiteralPath (Join-Path $c 'config.ini')) -and (Test-Path -LiteralPath (Join-Path $c 'keybinds.ini')))
 Comprobar 'conserva las capturas' ((Test-Path -LiteralPath (Join-Path $c 'capturas/MarioTennis_2026-11-11_10-00-00.png')) -and (Test-Path -LiteralPath (Join-Path $c 'capturas/otra.png')))
 Comprobar 'borra el ejecutable y las DLL' (-not (Test-Path -LiteralPath (Join-Path $c 'MarioTennisPowerTourRecomp.exe')) -and -not (Test-Path -LiteralPath (Join-Path $c 'SDL2.dll')))
@@ -54,7 +55,7 @@ Write-Host 'Desinstalar sin conservar nada'
 $c = Montar-Instalacion
 $codigo = Ejecutar $c @()
 Comprobar 'termina bien' ($codigo -eq 0)
-Comprobar 'no queda ninguna partida ni captura' (-not (Test-Path -LiteralPath (Join-Path $c 'roms/mario_tennis.sav')) -and -not (Test-Path -LiteralPath (Join-Path $c 'capturas/otra.png')))
+Comprobar 'no queda ninguna partida, estado ni captura' (-not (Test-Path -LiteralPath (Join-Path $c 'roms/mario_tennis.sav')) -and -not (Test-Path -LiteralPath (Join-Path $c 'roms/mario_tennis.state1')) -and -not (Test-Path -LiteralPath (Join-Path $c 'capturas/otra.png')))
 Comprobar 'no queda la configuración' (-not (Test-Path -LiteralPath (Join-Path $c 'config.ini')))
 Remove-Item -LiteralPath (Split-Path -Parent $c) -Recurse -Force -ErrorAction SilentlyContinue
 

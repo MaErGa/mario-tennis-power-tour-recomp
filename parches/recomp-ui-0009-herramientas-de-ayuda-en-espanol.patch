@@ -1,0 +1,139 @@
+--- a/src/common/launcher_i18n.cpp
++++ b/src/common/launcher_i18n.cpp
+@@ -376,7 +376,7 @@
+     {"INPUT", "CONTROLES"},
+     {"ONLINE", "EN LÍNEA"},
+     {"CREDITS", "CRÉDITOS"},
+-    {"ASSIST TOOLS / CHEATS", "HERRAMIENTAS / TRUCOS"},
++    {"ASSIST TOOLS / CHEATS", "HERRAMIENTAS DE AYUDA"},
+     {"MOUSE", "RATÓN"},
+     {"SAVES", "PARTIDAS"},
+     {"LOCALIZATION", "IDIOMA"},
+@@ -445,7 +445,7 @@
+     {"QUIT GAME", "SALIR DEL JUEGO"},
+     {"(unbound)", "(sin asignar)"},
+     {"[ press... ]", "[ pulsa... ]"},
+-    {"Enable Assist Tools / Cheats", "Activar herramientas / trucos"},
++    {"Enable Assist Tools / Cheats", "Activar las herramientas de ayuda"},
+     {"FAST-FORWARD SPEED", "VELOCIDAD DEL AVANCE RÁPIDO"},
+     {"Enable ROM patch", "Activar parche de ROM"},
+     {"No patch selected", "Ningún parche elegido"},
+@@ -670,6 +670,32 @@
+     {" — Map All", " — Asignar todos"},
+     {"Release Button (Esc cancels, Backspace unbinds)%s", "Suelta el botón (Esc cancela, Retroceso borra)%s"},
+     {"Map an input to %s (Esc cancels, Backspace unbinds)%s", "Asigna un botón o eje a %s (Esc cancela, Retroceso borra)%s"},
++    // ---- 0.7.0: herramientas de ayuda (estados guardados con nombre, rebobinado, avance rápido) ----
++    {"State saved", "Estado guardado"},
++    {"State loaded", "Estado cargado"},
++    {"Could not save state", "No se pudo guardar el estado"},
++    {"Could not load state", "No se pudo cargar el estado"},
++    {"Empty slot", "Ranura vacía"},
++    {"Rewound", "Rebobinado"},
++    {"Nothing to rewind yet", "Aún no hay nada que rebobinar"},
++    {"Saved states", "Estados guardados"},
++    {"Press Enter to name this state.", "Pulsa Intro para ponerle nombre."},
++    {"Slot 1", "Ranura 1"},
++    {"Slot 2", "Ranura 2"},
++    {"Slot 3", "Ranura 3"},
++    {"Slot 4", "Ranura 4"},
++    {"Slot 5", "Ranura 5"},
++    {"Slot 6", "Ranura 6"},
++    {"Slot 7", "Ranura 7"},
++    {"Slot 8", "Ranura 8"},
++    {"Slot 9", "Ranura 9"},
++    {"Slot 10", "Ranura 10"},
++    {"Rewind returns to a recent point kept in memory. Fast-forward runs without the normal frame limiter. Keyboard and controller controls can be changed below.", "Rebobinar vuelve a un punto reciente guardado en memoria. El avance rápido va sin el límite normal de fotogramas. Las teclas y los botones del mando se cambian en «Configurar», en la pantalla principal. Si desactivas las herramientas, tampoco funcionan los estados (F1–F9) ni el turbo (Tab)."},
++    {"Action", "Acción"},
++    {"(global; requires Assist Tools)", "(global; necesita las herramientas de ayuda)"},
++    {"(keyboard and controller)", "(teclado y mando)"},
++    {"Target emulation speed while Fast-forward is held or latched.", "Velocidad del juego mientras el avance rápido está pulsado o fijado."},
++    {"This optional host mode enables game-specific convenience features. The game window should disclose when it is active.", "Este modo opcional activa ayudas propias del juego. La ventana del juego avisa cuando está activo."},
+ };
+ 
+ // PARCHE mario-tennis: con MTP_I18N_DEBUG=1 se escribe en stderr cada texto sin traducir (una
+--- a/src/common/backends/imgui/launcher_imgui.cpp
++++ b/src/common/backends/imgui/launcher_imgui.cpp
+@@ -5359,12 +5359,12 @@
+     if (ImGui::BeginTable(table_id, pad_col ? 3 : 2,
+                           ImGuiTableFlags_SizingFixedFit |
+                               ImGuiTableFlags_RowBg)) {
+-        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthFixed,
++        ImGui::TableSetupColumn(ui_text("Action"), ImGuiTableColumnFlags_WidthFixed,
+                                 px(150));
+-        ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthFixed,
++        ImGui::TableSetupColumn(ui_text("Keyboard"), ImGuiTableColumnFlags_WidthFixed,
+                                 px(180));
+         if (pad_col)
+-            ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthFixed,
++            ImGui::TableSetupColumn(ui_text("Controller"), ImGuiTableColumnFlags_WidthFixed,
+                                     px(180));
+         ImGui::TableHeadersRow();
+         int count = m->assist_binding_count;
+@@ -5374,7 +5374,7 @@
+             ImGui::TableNextRow();
+             ImGui::TableSetColumnIndex(0);
+             ImGui::AlignTextToFramePadding();
+-            ImGui::TextUnformatted(m->assist_binding_labels[action]);
++            ImGui::TextUnformatted(ui_text(m->assist_binding_labels[action]));
+             ImGui::TableSetColumnIndex(1);
+             bool capture_key = m->capturing && m->capture_assist &&
+                                !m->capture_pad && m->capture_btn == action;
+@@ -5424,18 +5424,18 @@
+     ImGui::SameLine();
+     ImGui::TextColored(col(th.text_muted),
+                        m->has_assist_tools
+-                           ? "(global; requires Assist Tools)"
+-                           : "(keyboard and controller)");
++                           ? ui_text("(global; requires Assist Tools)")
++                           : ui_text("(keyboard and controller)"));
+     const bool pad_col = assist_pad_column_available(m);
+     if (ImGui::BeginTable("controller_assist_binds", pad_col ? 3 : 2,
+                           ImGuiTableFlags_SizingStretchProp |
+                               ImGuiTableFlags_RowBg)) {
+-        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch,
++        ImGui::TableSetupColumn(ui_text("Action"), ImGuiTableColumnFlags_WidthStretch,
+                                 1.1f);
+-        ImGui::TableSetupColumn("Keyboard", ImGuiTableColumnFlags_WidthStretch,
++        ImGui::TableSetupColumn(ui_text("Keyboard"), ImGuiTableColumnFlags_WidthStretch,
+                                 1.0f);
+         if (pad_col)
+-            ImGui::TableSetupColumn("Controller", ImGuiTableColumnFlags_WidthStretch,
++            ImGui::TableSetupColumn(ui_text("Controller"), ImGuiTableColumnFlags_WidthStretch,
+                                     1.0f);
+         ImGui::TableHeadersRow();
+         for (int action = 0; action < m->assist_binding_count; ++action) {
+@@ -5443,7 +5443,7 @@
+             ImGui::TableNextRow();
+             ImGui::TableSetColumnIndex(0);
+             ImGui::AlignTextToFramePadding();
+-            ImGui::TextUnformatted(m->assist_binding_labels[action]);
++            ImGui::TextUnformatted(ui_text(m->assist_binding_labels[action]));
+             ImGui::TableSetColumnIndex(1);
+             bool capture_key = m->capturing && m->capture_assist &&
+                                !m->capture_pad && m->capture_btn == action;
+@@ -5491,9 +5491,9 @@
+     ImGui::PushTextWrapPos();
+     ImGui::TextWrapped("%s",
+         (m->assist_tools_note && m->assist_tools_note[0])
+-            ? m->assist_tools_note
+-            : "This optional host mode enables game-specific convenience "
+-              "features. The game window should disclose when it is active.");
++            ? ui_text(m->assist_tools_note)
++            : ui_text("This optional host mode enables game-specific convenience "
++                      "features. The game window should disclose when it is active."));
+     ImGui::PopTextWrapPos();
+     ImGui::PopStyleColor();
+     // Fast-forward speed. Only hosts that publish a range get the slider; a
+@@ -5504,9 +5504,9 @@
+         ImGui::PushStyleColor(ImGuiCol_Text, col(th.accent2));
+     ImGui::TextUnformatted(ui_text("FAST-FORWARD SPEED"));
+         ImGui::PopStyleColor();
+-        ImGui::TextColored(col(th.text_muted),
+-                           "Target emulation speed while Fast-forward is "
+-                           "held or latched.");
++        ImGui::TextColored(col(th.text_muted), "%s",
++                           ui_text("Target emulation speed while Fast-forward is "
++                                   "held or latched."));
+         int speed = m->s.assist_fast_forward_multiplier;
+         ImGui::SetNextItemWidth(px(360));
+         if (ImGui::SliderInt("##assist_fast_forward_speed", &speed,

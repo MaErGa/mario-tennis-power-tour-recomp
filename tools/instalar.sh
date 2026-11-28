@@ -179,7 +179,7 @@ copiar_juego() { # origen destino
         case "$rel" in assets/*|bios_libre/*) continue ;; esac
         t="$dst/$rel"
         case "$rel" in
-            config.ini|keybinds.ini|launcher-window.ini|rom.cfg|bios.cfg|*.sav|*.state[0-9]|roms/*.gba)
+            config.ini|keybinds.ini|launcher-window.ini|rom.cfg|bios.cfg|*.sav|*.state[0-9]|*.state[0-9].info|roms/*.gba)
                 [ -e "$t" ] && continue ;;
         esac
         mkdir -p "$(dirname "$t")"

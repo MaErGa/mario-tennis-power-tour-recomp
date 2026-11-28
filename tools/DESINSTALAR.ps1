@@ -12,7 +12,7 @@
     No pregunta nada. Borra todo salvo que se pase -ConservarPartidas.
 
 .PARAMETER ConservarPartidas
-    Deja los archivos .sav (partidas), config.ini, keybinds.ini y la carpeta capturas
+    Deja los archivos .sav (partidas), los estados guardados (.state1…9 y sus nombres), config.ini, keybinds.ini y la carpeta capturas
     (tus capturas de pantalla).
 
 .PARAMETER PruebaSeca
@@ -85,7 +85,7 @@ try {
             return
         }
         if (-not $ConservarPartidas) {
-            $ConservarPartidas = Preguntar-SiNo "¿Quieres conservar tus partidas guardadas y tus ajustes (archivos .sav y sus copias de seguridad, config.ini, keybinds.ini y la carpeta capturas)?`n`n(Si más adelante vuelves a instalar el juego en esta carpeta, las recuperarás.)" $true
+            $ConservarPartidas = Preguntar-SiNo "¿Quieres conservar tus partidas guardadas y tus ajustes (archivos .sav y sus copias de seguridad, los estados guardados, config.ini, keybinds.ini y la carpeta capturas)?`n`n(Si más adelante vuelves a instalar el juego en esta carpeta, las recuperarás.)" $true
         }
     }
 
@@ -113,7 +113,7 @@ try {
     Get-ChildItem -LiteralPath $carpeta -Force -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
         if ($_.FullName -ieq $yo) { return }
         $guardar = $ConservarPartidas -and (
-            $_.Extension -ieq '.sav' -or $_.Name -like '*.sav.*' -or
+            $_.Extension -ieq '.sav' -or $_.Name -like '*.sav.*' -or $_.Name -match '\.state[0-9](\.info)?$' -or
             $_.DirectoryName.TrimEnd('\', '/') -ieq $carpetaCapturas -or
             ($_.DirectoryName.TrimEnd('\', '/') -ieq $carpeta.TrimEnd('\', '/') -and $_.Name -in @('config.ini', 'keybinds.ini', 'instalacion.json')))
         if ($guardar) { $conservados++; return }

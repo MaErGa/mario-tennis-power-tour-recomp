@@ -1,12 +1,22 @@
 # Estado del proyecto (leer al retomar)
 
-Última comprobación: 26-nov-2026 (versión 0.6.0), en Linux (sandbox de 2 núcleos, sin tarjeta de
+Última comprobación: 28-nov-2026 (versión 0.7.0), en Linux (sandbox de 2 núcleos, sin tarjeta de
 sonido, sin Windows).
 
 ## Qué funciona
 
+- **Calidad de vida (0.7.0; `src/main.cpp`, parches `gbarecomp-0011` y `recomp-ui-0009`)**: las
+  herramientas de ayuda del framework están activadas (`expose_assist_tools`): estados en 9 ranuras con
+  **nombre** (`Esc → Estados guardados`), **rebobinar** (30 s, un punto cada 10 fotogramas), **avance
+  rápido** ajustable (2×–10×) y **avisos en pantalla**. Comprobado en Linux con la ROM real en una ventana
+  virtual (sin mando, sin audio): guardar/cargar con teclas y desde el menú (los estados son de ≈ 586 KB),
+  ranura vacía → aviso, nombre con «ñ» que sobrevive a un reinicio, renombrar una ranura vacía y
+  conservar el nombre al guardar, rebobinar con 1 (`rewind_loaded` retrocede ≈ 1 s por salto), avance
+  rápido con 2 (título «turbo x4.0») y fijado desde el menú a 6× («turbo x6.0»), memoria estable
+  (≈ 266 MB una vez lleno el historial, ≈ +70 MB) y CPU sin cambios. Las pantallas nuevas salen sin
+  textos en inglés (detector `MTP_I18N_DEBUG`).
 - **Instalar, actualizar y desinstalar en Linux (0.6.0; `tools/instalar.sh`, `actualizar.sh`,
-  `desinstalar.sh`, `comun.sh`)**: comprobado en Ubuntu 24.04 con la ROM real y con 62 comprobaciones
+  `desinstalar.sh`, `comun.sh`)**: comprobado en Ubuntu 24.04 con la ROM real y con 64 comprobaciones
   automáticas (`tools/pruebas/probar_instalador_linux.sh`, con un juego falso y un HOME temporal).
   Instalación desde cero en ≈ 9 min (2 núcleos, 8 GB), arranque desde la entrada del menú de
   aplicaciones (pantalla de idiomas del juego), actualización sin cambios (no hace nada), con `--forzar`

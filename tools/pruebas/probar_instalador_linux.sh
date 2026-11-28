@@ -49,6 +49,7 @@ hacer_juego "$tmp/juego1" v1
 hacer_juego "$tmp/juego2" v2
 echo "ajuste=del_juego_nuevo" > "$tmp/juego2/config.ini"
 echo "estado nuevo" > "$tmp/juego2/roms/mario_tennis_power_tour_eur.state1"
+printf 'nombre=del juego nuevo\nfecha=\n' > "$tmp/juego2/roms/mario_tennis_power_tour_eur.state1.info"
 
 seccion "Instalar (con espacios en la carpeta)"
 dest="$casa/Juegos con espacios/Mario Tennis"
@@ -72,6 +73,7 @@ seccion "Actualizar (conserva tus datos)"
 echo "ajuste=del_usuario" > "$dest/config.ini"
 echo "partida" > "$dest/roms/mario_tennis_power_tour_eur.sav"
 echo "estado del usuario" > "$dest/roms/mario_tennis_power_tour_eur.state1"
+printf 'nombre=Final con Peach\nfecha=27/11/2026 18:05\n' > "$dest/roms/mario_tennis_power_tour_eur.state1.info"
 mkdir -p "$dest/capturas"; echo "png" > "$dest/capturas/foto.png"
 out="$(actualizar --juego-prueba "$tmp/juego2" --silencioso 2>&1)" || true
 comprobar "sin cambios en el proyecto, dice que ya está al día" grep -q "Ya tienes esta versión" <<<"$out"
@@ -83,6 +85,7 @@ comprobar "los assets se sustituyen enteros (el viejo ya no está)" bash -c "tes
 comprobar "no pisa tu config.ini"        grep -qx "ajuste=del_usuario" "$dest/config.ini"
 comprobar "no pisa tu partida (.sav)"    grep -qx "partida" "$dest/roms/mario_tennis_power_tour_eur.sav"
 comprobar "no pisa tus estados"          grep -qx "estado del usuario" "$dest/roms/mario_tennis_power_tour_eur.state1"
+comprobar "no pisa los nombres de tus estados" grep -qx "nombre=Final con Peach" "$dest/roms/mario_tennis_power_tour_eur.state1.info"
 comprobar "conserva tus capturas"        test -f "$dest/capturas/foto.png"
 comprobar "la entrada del menú sigue ahí" grep -qxF "Path=$dest" "$acceso"
 
@@ -196,10 +199,13 @@ comprobar "sin MTP_NUCLEOS hay al menos un núcleo" test "$n0" -ge 1
 seccion "Desinstalar"
 echo "mi ajuste" > "$dest2/config.ini"; echo "mi partida" > "$dest2/roms/mario_tennis_power_tour_eur.sav"
 mkdir -p "$dest2/capturas"; echo "x" > "$dest2/capturas/a.png"
+echo "mi estado" > "$dest2/roms/mario_tennis_power_tour_eur.state2"
+printf 'nombre=Saque de práctica\nfecha=\n' > "$dest2/roms/mario_tennis_power_tour_eur.state2.info"
 comprobar "desinstala conservando tus datos" bash "$dest2/desinstalar.sh" --silencioso
 comprobar "quita la entrada del menú y el acceso del Escritorio" bash -c "test ! -e '$acceso' && test ! -e '$atajo'"
 comprobar "el juego ya no está"            no test -e "$dest2/MarioTennisPowerTourRecomp"
 comprobar "quedan tus ajustes, partida y capturas" bash -c "grep -qx 'mi ajuste' '$dest2/config.ini' && grep -qx 'mi partida' '$dest2/roms/mario_tennis_power_tour_eur.sav' && test -f '$dest2/capturas/a.png'"
+comprobar "quedan tus estados y sus nombres" bash -c "grep -qx 'mi estado' '$dest2/roms/mario_tennis_power_tour_eur.state2' && grep -qx 'nombre=Saque de práctica' '$dest2/roms/mario_tennis_power_tour_eur.state2.info'"
 comprobar "no quedan archivos del juego (assets, bios, instalacion.cfg)" bash -c "test ! -e '$dest2/assets' && test ! -e '$dest2/bios_libre' && test ! -e '$dest2/instalacion.cfg'"
 # Reinstalar encima de lo conservado, y ahora borrarlo todo
 comprobar "se puede reinstalar encima de lo conservado" instalar --juego-prueba "$tmp/juego1" --destino "$dest2" --silencioso --sin-accesos

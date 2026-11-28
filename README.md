@@ -47,6 +47,7 @@ virtual y sin ventana):
 | Rendimiento | ≈ 110–120 fotogramas/s sin ventana en un equipo de 2 núcleos (el juego pide 59,7) |
 | Audio | El juego genera sonido (comprobado: señal mezclada no silenciosa en un partido). **No se ha escuchado** (el entorno de pruebas no tiene tarjeta de sonido) |
 | **Jugar online con un amigo por código de invitación** (0.5.0, **experimental**) | Pantalla «En línea» del menú: crear sala, pasaros dos códigos, nombres para identificaros y la partida arranca sola. Comprobado en Linux con dos instancias reales del juego (se conectan, acuerdan el arranque y avanzan miles de ticks por las pantallas de idioma y de elección de personaje), el protocolo con routers NAT simulados (Linux) y la interfaz entera con ventana virtual. **Sin probar:** entre dos casas por internet de verdad, en Windows, **un partido completo en línea** y sesiones largas (ver «Jugar online con un amigo») |
+| **Estados con nombre, rebobinar y avance rápido ajustable** (0.7.0) | Comprobados en Linux con la ROM real (ventana virtual): guardar y cargar con F1–F9 y desde el menú, avisos en pantalla, nombres (también con ñ) que sobreviven a reiniciar, rebobinar con **1** (varios saltos seguidos), avance rápido con **2** a 4× y fijado desde el menú a 6× (se ve en el título). **Sin comprobar:** con un mando de verdad (gatillos), en Windows, con el audio (en el avance rápido se silencia) y una partida larga rebobinando |
 | Torneos completos, minijuegos, multijugador por cable (sin red) | **Sin comprobar** |
 | `.exe` de Windows (compilación cruzada con MinGW) | Arranca bajo Wine; una partida nueva en español (la que se veía rota en Windows) sale idéntica a la de Linux |
 | `INSTALAR.bat` en un Windows real (11), método antiguo con MSYS2 | La ventana, la comprobación del equipo y la detección de MSYS2 funcionaron; falló `pacman` por un bloqueo antiguo (`db.lck`), ya corregido |
@@ -241,20 +242,25 @@ imagen, abajo).
 | **C** / **V** | Botón L / botón R |
 | **Intro** | Start |
 | **Mayús derecho** | Select |
-| **Mayús + F1…F9** | **Guardar estado** en el hueco 1–9 |
-| **F1…F9** | **Cargar estado** de ese hueco |
+| **Mayús + F1…F9** | **Guardar estado** en la ranura 1–9 (sale un aviso con la ranura y su nombre) |
+| **F1…F9** | **Cargar estado** de esa ranura |
 | **Tab** (mantener) | Avance rápido (turbo) |
 | **F12** / **Mayús + F12** | Siguiente / anterior **filtro de imagen**, en directo (el nombre sale unos segundos en el título y se guarda) |
 | **F10** | **Captura de pantalla** (PNG en la carpeta `capturas`) |
 | **Mayús + P** | Pausa |
 | **Alt + Intro** | Pantalla completa |
 | **F** | Fotogramas por segundo en el título de la ventana |
-| **Esc** | Menú del juego, en español (pantalla, filtro lineal, sonido, estados, salir) |
-| **1** / **2** (mantener) | Rebobinar / avance rápido de las herramientas de ayuda (también con los gatillos del mando) |
+| **Esc** | Menú del juego, en español (pantalla, gráficos, sonido, sistema, herramientas, estados guardados, salir) |
+| **1** (mantener) | **Rebobinar**: vuelve 1 s atrás cada medio segundo, hasta 30 s (también con el gatillo izquierdo del mando) |
+| **2** (mantener) | **Avance rápido** (también con el gatillo derecho); con `Esc → Herramientas` se puede fijar |
 
 Los estados (F1–F9) se guardan junto al juego como `roms/mario_tennis_power_tour_eur.state1`
 … `state9` y son **independientes de las partidas normales** (guardar dentro del juego, el
-`.sav`). Los atajos del sistema se pueden cambiar en `config.ini`, sección `[KeyMap]`
+`.sav`). Cada uno puede llevar un **nombre** (`Esc → Estados guardados`, Intro sobre la ranura; sin nombre
+se ve la fecha del guardado); se apunta en `…stateN.info`. Un estado solo se carga con **la misma ROM**
+con la que se guardó (el juego lo comprueba por su SHA-1; si no, sale «No se pudo cargar el estado»).
+
+Los atajos del sistema se pueden cambiar en `config.ini`, sección `[KeyMap]`
 (`Fullscreen`, `Pause`, `Turbo`, `WindowBigger`, `WindowSmaller`, `VolumeUp`, `VolumeDown`,
 `DisplayPerf`, `ImageFilterNext`, `ImageFilterPrev`, `Screenshot`); los botones del juego, en el menú de
 arranque o en `keybinds.ini`.

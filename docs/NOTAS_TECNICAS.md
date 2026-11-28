@@ -131,6 +131,16 @@ nombre de la carpeta que se le da: `externo/gbarecomp` → `parches/gbarecomp-*.
     `host_overlay` (puntero a una función que dibuja el rótulo); el título de la ventana pasa a
     «`<título>` - `Nombre1 vs Nombre2` - `<estado>`» y se llama a `window.set_host_overlay(...)`.
 
+11. **`0011-herramientas-de-ayuda-con-avisos-y-nombres`** (0.7.0), en `runtime.cpp` y
+    `host_window.cpp`: (a) nombres de estado: ayudas `mtp_leer_info` / `mtp_escribir_info` /
+    `mtp_texto_de_estado` (fichero `<estado>.info`, dos líneas `nombre=` y `fecha=`; sin `nombre` se
+    enseña la fecha, y si no consta, la de modificación del fichero), nueve filas de texto
+    `mtp.state_name.N` (sección «Saved states») con `get_text`/`set_text` y una caché de 1 s por fila;
+    (b) avisos: `mtp_aviso()` pone el *toast* del menú (título traducible + cuerpo neutro «#N · nombre»)
+    y lo retira a los ≈ 2,2 s desde el procesado de eventos; (c) `host_window.cpp` dibuja el *toast*
+    también con el menú cerrado (antes solo se veía con el menú abierto); (d) tras guardar se renueva la
+    fecha y se conserva el nombre; al rebobinar se avisa de cuánto se ha vuelto atrás.
+
 **Los parches solo pueden modificar archivos existentes.** El aplicador de
 `tools/construir.ps1` (el del Windows ligero, sin git) entiende los *hunks* de
 modificación pero no los archivos nuevos, así que el código nuevo va dentro de archivos
@@ -287,6 +297,23 @@ argumentos antes de llamar a `run_game()`.
    `launcher_i18n.cpp`: el aviso nombra `ACTUALIZAR.bat` con `_WIN32` y `tools/actualizar.sh` en el
    resto (dos claves de traducción distintas; el texto se elige antes de llamar a `snprintf`, sin
    directivas dentro de los argumentos).
+
+9. **`recomp-ui-0009-herramientas-de-ayuda-en-espanol`** (0.7.0), en `launcher_imgui.cpp` y
+   `launcher_i18n.cpp`: traducciones de los avisos, de la sección «Saved states», de «Slot N» y de la
+   pantalla «Herramientas» del menú de arranque; `ui_text()` en el texto de la nota, en los encabezados
+   de las tablas de atajos y en las etiquetas de «Rewind» / «Fast-forward»; «Assist Tools / Cheats» pasa a
+   «herramientas de ayuda» (el port no lleva trucos).
+
+### Herramientas de ayuda (0.7.0)
+
+`src/main.cpp` pone en `RunOptions`: `expose_assist_tools = true`, `assist_tools_enabled_by_default = true`,
+`assist_fast_forward_multiplier_default = 4`, `save_state_slot_count = 9`, `rewind_history_seconds = 30` y
+`rewind_capture_interval_frames = 10`. El framework guarda el historial como instantáneas completas en
+memoria (≈ 586 KB cada una; 30 s / 10 fotogramas ≈ 181 → ≈ +70 MB medidos). Rebobinar busca el punto
+guardado ≤ (fotograma actual − 60) y repite cada 500 ms mientras se mantiene la tecla; `config.ini` guarda
+`assist_tools`, `assist_fast_forward_multiplier`, `assist_rewind_key` (30 = «1»), `assist_fast_key` (31 = «2»)
+y los botones del mando (109/111 = gatillos). Con `assist_tools = 0` el framework apaga también los
+estados y el turbo. El juego en red usa otro bucle (`multiplayer_runner.cpp`) y no ve estas herramientas.
 
 ### Aviso de versión: módulo y ajustes
 
